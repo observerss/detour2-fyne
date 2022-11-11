@@ -40,8 +40,8 @@ type UI struct {
 	CurrentIdx      int
 }
 
-func MakeUI(parent fyne.Window) fyne.CanvasObject {
-	ui := &UI{
+func NewUI(parent fyne.Window) *UI {
+	return &UI{
 		Left:            &widget.List{},
 		Name:            widget.NewEntry(),
 		CloudProvider:   widget.NewSelect([]string{}, func(s string) {}),
@@ -56,7 +56,9 @@ func MakeUI(parent fyne.Window) fyne.CanvasObject {
 		Region:          widget.NewSelect([]string{}, func(s string) {}),
 		Parent:          parent,
 	}
+}
 
+func (ui *UI) MakeUI() fyne.CanvasObject {
 	ui.Delete = widget.NewButton("删除", ui.HandleDelete)
 	ui.Reset = widget.NewButton("重置", ui.ResetForm)
 	ui.Test = widget.NewButton("测试", ui.HandleTest)

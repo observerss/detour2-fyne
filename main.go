@@ -55,14 +55,17 @@ func main() {
 		desk.SetSystemTrayIcon(resourceIconPng)
 	}
 
+	runUI := run.NewUI(w)
+	profileUI := profile.NewUI(w)
 	tabs := container.NewAppTabs(
-		container.NewTabItem(TextRun, run.MakeUI(w)),
-		container.NewTabItem(TextProfile, profile.MakeUI(w)),
+		container.NewTabItem(TextRun, runUI.MakeUI()),
+		container.NewTabItem(TextProfile, profileUI.MakeUI()),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
 	tabs.OnSelected = func(t *container.TabItem) {
 		if t.Text == TextRun {
 			a.Settings().SetTheme(th.RunTheme())
+			runUI.ResetUI()
 		} else {
 			a.Settings().SetTheme(theme.DefaultTheme())
 		}
