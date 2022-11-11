@@ -139,7 +139,9 @@ func (ui *UI) ResetLeft() {
 	if ui.CurrentIdx >= len(names) {
 		ui.CurrentIdx = len(names) - 1
 	}
-	ui.Left.Select(ui.CurrentIdx)
+	if ui.CurrentIdx >= 0 {
+		ui.Left.Select(ui.CurrentIdx)
+	}
 }
 
 func (ui *UI) ResetForm() {

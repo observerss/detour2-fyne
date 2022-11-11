@@ -2,6 +2,7 @@ package run
 
 import (
 	"os"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -10,6 +11,7 @@ import (
 
 	lo "github.com/observerss/detour2-fyne/layout"
 	"github.com/observerss/detour2-fyne/profile"
+	"github.com/observerss/detour2/deploy"
 	"github.com/observerss/detour2/logger"
 )
 
@@ -21,7 +23,7 @@ var (
 	TextRunOnStartup  = "开机自动运行"
 	TextGlobalProxy   = "启用全局代理"
 	TextStartFC       = "部署&启动"
-	TextStopFc        = "停止&移除"
+	TextStopFC        = "停止&移除"
 )
 
 type UI struct {
@@ -33,10 +35,11 @@ type UI struct {
 	LogEntry       *widget.Entry
 	Parent         fyne.Window
 	Started        bool
+	Logs           *clog
 }
 
 func NewUI(parent fyne.Window) *UI {
-	return &UI{
+	ui := &UI{
 		ProfileSelect:  widget.NewSelect([]string{}, func(s string) {}),
 		LocalPort:      widget.NewEntry(),
 		RunOnStartup:   widget.NewCheck(TextRunOnStartup, func(b bool) {}),
@@ -45,7 +48,8 @@ func NewUI(parent fyne.Window) *UI {
 		LogEntry:       widget.NewMultiLineEntry(),
 		Parent:         parent,
 	}
-
+	ui.Logs = &clog{Entry: ui.LogEntry, Lines: make([]string, 0)}
+	return ui
 }
 
 func (ui *UI) MakeUI() fyne.CanvasObject {
@@ -84,8 +88,9 @@ func (ui *UI) ResetUI() {
 	profs, _ := profile.LoadProfiles()
 	names := profile.GetProfileNames(profs)
 	ui.ProfileSelect.Options = names
-	ui.ProfileSelect.SetSelected(names[0])
-
+	if len(names) > 0 {
+		ui.ProfileSelect.SetSelected(names[0])
+	}
 	ui.LocalPort.SetPlaceHolder(DefaultPort)
 	ui.LocalPort.SetText(DefaultPort)
 }
@@ -95,8 +100,8 @@ func (ui *UI) SetupBindings() {
 }
 
 func (ui *UI) HandleToggleRun() {
-	logger.Info.SetOutput(&clog{Entry: ui.LogEntry})
-	logger.Error.SetOutput(&clog{Entry: ui.LogEntry})
+	logger.Info.SetOutput(ui.Logs)
+	logger.Error.SetOutput(ui.Logs)
 	defer func() {
 		logger.Info.SetOutput(os.Stdout)
 		logger.Error.SetOutput(os.Stderr)
@@ -110,9 +115,22 @@ func (ui *UI) HandleToggleRun() {
 }
 
 func (ui *UI) StartRunning() {
+	ui.ToggleRun.Disable()
 
-	// err := deploy.DeployServer(conf)
+	profs, _ := profile.LoadProfiles()
+	names := profile.GetProfileNames(profs)
+	name := names[ui.ProfileSelect.SelectedIndex()]
+	prof := profs[name]
+	conf := profile.ConvertProfileToConfig(prof)
+	err := deploy.DeployServer(conf)
+	if err != nil {
+		ui.ToggleRun.Enable()
+		return
+	}
 
+	ui.ToggleRun.Enable()
+	ui.Started = true
+	ui.ToggleRun.SetText(TextStopFC)
 	// if err != nil {
 	// 	text.SetText("测试失败: " + err.Error())
 	// } else {
@@ -123,13 +141,37 @@ func (ui *UI) StartRunning() {
 }
 
 func (ui *UI) StopRunning() {
+	ui.ToggleRun.Disable()
 
+	profs, _ := profile.LoadProfiles()
+	names := profile.GetProfileNames(profs)
+	name := names[ui.ProfileSelect.SelectedIndex()]
+	prof := profs[name]
+	conf := profile.ConvertProfileToConfig(prof)
+	conf.Remove = true
+	err := deploy.DeployServer(conf)
+	if err != nil {
+		ui.ToggleRun.Enable()
+		return
+	}
+
+	ui.ToggleRun.Enable()
+	ui.Started = false
+	ui.ToggleRun.SetText(TextStartFC)
 }
 
 type clog struct {
 	Entry *widget.Entry
+	Lines []string
 }
 
 func (l *clog) Write(p []byte) (int, error) {
+	l.Lines = append(l.Lines, string(p))
+	if len(l.Lines) > 1000 {
+		l.Lines = l.Lines[len(l.Lines)-1000:]
+	}
+	l.Entry.SetText(strings.Join(l.Lines, ""))
+	l.Entry.CursorRow = len(l.Lines) - 1
+	l.Entry.Refresh()
 	return 0, nil
 }
