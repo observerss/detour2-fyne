@@ -95,7 +95,7 @@ func decrypt(key []byte, secure string) (decoded string, err error) {
 
 	//IF the length of the cipherText is less than 16 Bytes:
 	if len(cipherText) < aes.BlockSize {
-		err = errors.New("Ciphertext block size is too short!")
+		err = errors.New("ciphertext block size is too short")
 		return
 	}
 
