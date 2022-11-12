@@ -15,6 +15,7 @@ import (
 	"github.com/observerss/detour2-fyne/profile"
 	"github.com/observerss/detour2-fyne/run"
 	th "github.com/observerss/detour2-fyne/theme"
+	"github.com/observerss/detour2/logger"
 )
 
 func init() {
@@ -34,7 +35,7 @@ var (
 	Title       = "Detour2"
 	TextRun     = "运行"
 	TextProfile = "配置"
-	TextDisplay = "显示"
+	TextDisplay = "Show"
 	ProfileSize = fyne.Size{Width: 720, Height: 560}
 )
 
@@ -68,6 +69,8 @@ func main() {
 			runUI.ResetUI()
 		} else {
 			a.Settings().SetTheme(theme.DefaultTheme())
+			logger.Info.SetOutput(os.Stdout)
+			logger.Error.SetOutput(os.Stderr)
 		}
 	}
 

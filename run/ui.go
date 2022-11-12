@@ -1,7 +1,7 @@
 package run
 
 import (
-	"os"
+	"fmt"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -11,7 +11,9 @@ import (
 
 	lo "github.com/observerss/detour2-fyne/layout"
 	"github.com/observerss/detour2-fyne/profile"
+	"github.com/observerss/detour2/common"
 	"github.com/observerss/detour2/deploy"
+	"github.com/observerss/detour2/local"
 	"github.com/observerss/detour2/logger"
 )
 
@@ -36,6 +38,7 @@ type UI struct {
 	Parent         fyne.Window
 	Started        bool
 	Logs           *clog
+	Server         *local.Local
 }
 
 func NewUI(parent fyne.Window) *UI {
@@ -102,10 +105,6 @@ func (ui *UI) SetupBindings() {
 func (ui *UI) HandleToggleRun() {
 	logger.Info.SetOutput(ui.Logs)
 	logger.Error.SetOutput(ui.Logs)
-	defer func() {
-		logger.Info.SetOutput(os.Stdout)
-		logger.Error.SetOutput(os.Stderr)
-	}()
 
 	if !ui.Started {
 		ui.StartRunning()
@@ -124,24 +123,48 @@ func (ui *UI) StartRunning() {
 	conf := profile.ConvertProfileToConfig(prof)
 	err := deploy.DeployServer(conf)
 	if err != nil {
+		logger.Error.Println(err.Error())
 		ui.ToggleRun.Enable()
 		return
 	}
 
+	// run local server
+	cli, err := deploy.NewClient(conf)
+	if err != nil {
+		logger.Error.Println(err.Error())
+		ui.ToggleRun.Enable()
+		return
+	}
+	wsurl, err := cli.GetWebsocketURL()
+	if err != nil {
+		logger.Error.Println(err.Error())
+		ui.ToggleRun.Enable()
+		return
+	}
+	lconf := &common.LocalConfig{
+		Listen:   fmt.Sprintf("tcp://localhost:%s", ui.LocalPort.Text),
+		Remotes:  wsurl,
+		Password: conf.Password,
+		Proto:    "socks5",
+	}
+	ui.Server = local.NewLocal(lconf)
+	go func() {
+		err := ui.Server.RunLocal()
+		if err != nil {
+			logger.Error.Println(err)
+		}
+	}()
+
 	ui.ToggleRun.Enable()
 	ui.Started = true
 	ui.ToggleRun.SetText(TextStopFC)
-	// if err != nil {
-	// 	text.SetText("测试失败: " + err.Error())
-	// } else {
-	// 	conf.Remove = true
-	// 	deploy.DeployServer(conf)
-	// 	text.SetText("测试成功, 已成功部署并销毁云函数")
-	// }
 }
 
 func (ui *UI) StopRunning() {
 	ui.ToggleRun.Disable()
+
+	// stop server first
+	ui.Server.StopLocal()
 
 	profs, _ := profile.LoadProfiles()
 	names := profile.GetProfileNames(profs)
@@ -151,6 +174,7 @@ func (ui *UI) StopRunning() {
 	conf.Remove = true
 	err := deploy.DeployServer(conf)
 	if err != nil {
+		logger.Error.Println(err.Error())
 		ui.ToggleRun.Enable()
 		return
 	}
