@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/observerss/detour2-fyne/utils"
 )
 
 var EmptyProfile = map[string]*Profile{}
@@ -11,16 +13,16 @@ var EmptyProfile = map[string]*Profile{}
 func LoadProfiles() (map[string]*Profile, error) {
 	path, err := GetProfilePath()
 	if err != nil {
-		return EmptyProfile, nil
+		return EmptyProfile, err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return EmptyProfile, nil
+		return EmptyProfile, err
 	}
 	profs := make(map[string]*Profile, 0)
 	err = json.Unmarshal(content, &profs)
 	if err != nil {
-		return EmptyProfile, nil
+		return EmptyProfile, err
 	}
 	for _, prof := range profs {
 		prof.AccessKeyId = Decrypt(prof.AccessKeyId)
@@ -56,16 +58,6 @@ func GetProfilePath() (string, error) {
 		return "", nil
 	}
 	path := filepath.Join(home, ".detour", "profiles.json")
-	ensureDir(path)
+	utils.EnsureDir(path)
 	return path, err
-}
-
-func ensureDir(fileName string) {
-	dirName := filepath.Dir(fileName)
-	if _, serr := os.Stat(dirName); serr != nil {
-		merr := os.MkdirAll(dirName, os.ModePerm)
-		if merr != nil {
-			panic(merr)
-		}
-	}
 }

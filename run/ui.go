@@ -2,6 +2,8 @@ package run
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -11,6 +13,8 @@ import (
 
 	lo "github.com/observerss/detour2-fyne/layout"
 	"github.com/observerss/detour2-fyne/profile"
+	"github.com/observerss/detour2-fyne/run/proxy"
+	"github.com/observerss/detour2-fyne/run/startup"
 	"github.com/observerss/detour2/common"
 	"github.com/observerss/detour2/deploy"
 	"github.com/observerss/detour2/local"
@@ -26,6 +30,9 @@ var (
 	TextGlobalProxy   = "启用全局代理"
 	TextStartFC       = "部署&启动"
 	TextStopFC        = "停止&移除"
+	TextExit          = "退出程序"
+	MAX_LINES         = 50
+	HTTP_PORT         = "33331"
 )
 
 type UI struct {
@@ -34,11 +41,14 @@ type UI struct {
 	RunOnStartup   *widget.Check
 	UseGlobalProxy *widget.Check
 	ToggleRun      *widget.Button
+	Exit           *widget.Button
 	LogEntry       *widget.Entry
 	Parent         fyne.Window
 	Started        bool
 	Logs           *clog
-	Server         *local.Local
+	Socks5Server   *local.Local
+	HTTPServer     *local.Local
+	CanvasObject   fyne.CanvasObject
 }
 
 func NewUI(parent fyne.Window) *UI {
@@ -48,6 +58,7 @@ func NewUI(parent fyne.Window) *UI {
 		RunOnStartup:   widget.NewCheck(TextRunOnStartup, func(b bool) {}),
 		UseGlobalProxy: widget.NewCheck(TextGlobalProxy, func(b bool) {}),
 		ToggleRun:      widget.NewButton(TextStartFC, func() {}),
+		Exit:           widget.NewButton(TextExit, func() { os.Exit(0) }),
 		LogEntry:       widget.NewMultiLineEntry(),
 		Parent:         parent,
 	}
@@ -65,10 +76,10 @@ func (ui *UI) MakeUI() fyne.CanvasObject {
 		layout.NewSpacer(), layout.NewSpacer(),
 		widget.NewLabel(TextPortLabel), ui.LocalPort,
 		layout.NewSpacer(), layout.NewSpacer(),
-		ui.RunOnStartup, ui.UseGlobalProxy,
+		ui.RunOnStartup, layout.NewSpacer(),
 	)
 
-	submit := container.NewCenter(ui.ToggleRun)
+	submit := container.NewCenter(container.NewHBox(ui.ToggleRun, layout.NewSpacer(), ui.Exit))
 
 	form := lo.NewPaddingContainer(
 		container.NewVBox(layout.NewSpacer(), grid, submit, layout.NewSpacer()),
@@ -83,6 +94,7 @@ func (ui *UI) MakeUI() fyne.CanvasObject {
 	split := container.NewVSplit(form, logs)
 	split.SetOffset(0.4)
 
+	ui.CanvasObject = split
 	return split
 }
 
@@ -96,10 +108,34 @@ func (ui *UI) ResetUI() {
 	}
 	ui.LocalPort.SetPlaceHolder(DefaultPort)
 	ui.LocalPort.SetText(DefaultPort)
+	ui.LoadRun()
 }
 
 func (ui *UI) SetupBindings() {
 	ui.ToggleRun.OnTapped = ui.HandleToggleRun
+	ui.RunOnStartup.OnChanged = func(b bool) {
+		if b {
+			startup.Enable()
+		} else {
+			startup.Disable()
+		}
+		ui.SaveRun()
+	}
+	ui.UseGlobalProxy.OnChanged = func(b bool) {
+		if b {
+			proxyUrl := fmt.Sprintf("localhost:%s", HTTP_PORT)
+			err := proxy.SetGlobalProxy(proxyUrl)
+			if err != nil {
+				logger.Error.Println(err.Error())
+			}
+		} else {
+			err := proxy.Off()
+			if err != nil {
+				logger.Error.Println(err.Error())
+			}
+		}
+		ui.SaveRun()
+	}
 }
 
 func (ui *UI) HandleToggleRun() {
@@ -147,15 +183,32 @@ func (ui *UI) StartRunning() {
 		Password: conf.Password,
 		Proto:    "socks5",
 	}
-	ui.Server = local.NewLocal(lconf)
+	lconf2 := &common.LocalConfig{
+		Listen:   fmt.Sprintf("tcp://localhost:%s", HTTP_PORT),
+		Remotes:  wsurl,
+		Password: conf.Password,
+		Proto:    "http",
+	}
+	ui.Socks5Server = local.NewLocal(lconf)
+	ui.HTTPServer = local.NewLocal(lconf2)
 	go func() {
-		err := ui.Server.RunLocal()
+		err := ui.Socks5Server.RunLocal()
+		if err != nil {
+			logger.Error.Println(err)
+			ui.Started = false
+			ui.ToggleRun.SetText(TextStartFC)
+		}
+	}()
+
+	go func() {
+		err := ui.HTTPServer.RunLocal()
 		if err != nil {
 			logger.Error.Println(err)
 		}
 	}()
 
 	ui.ToggleRun.Enable()
+	ui.SaveRun()
 	ui.Started = true
 	ui.ToggleRun.SetText(TextStopFC)
 }
@@ -164,7 +217,8 @@ func (ui *UI) StopRunning() {
 	ui.ToggleRun.Disable()
 
 	// stop server first
-	ui.Server.StopLocal()
+	ui.Socks5Server.StopLocal()
+	ui.HTTPServer.StopLocal()
 
 	profs, _ := profile.LoadProfiles()
 	names := profile.GetProfileNames(profs)
@@ -184,6 +238,34 @@ func (ui *UI) StopRunning() {
 	ui.ToggleRun.SetText(TextStartFC)
 }
 
+func (ui *UI) SaveRun() {
+	run := &Run{
+		ProfileName:    ui.ProfileSelect.Selected,
+		LocalPort:      ui.LocalPort.Text,
+		RunOnStartup:   ui.RunOnStartup.Checked,
+		UseGlobalProxy: ui.UseGlobalProxy.Checked,
+	}
+	err := SaveRun(run)
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func (ui *UI) LoadRun() {
+	run, err := LoadRun()
+	if err != nil {
+		log.Println(err)
+	}
+	ui.ProfileSelect.SetSelected(run.ProfileName)
+	ui.LocalPort.SetText(run.LocalPort)
+	ui.RunOnStartup.SetChecked(run.RunOnStartup)
+	ui.UseGlobalProxy.SetChecked(run.UseGlobalProxy)
+
+	if ui.CanvasObject != nil {
+		ui.CanvasObject.Refresh()
+	}
+}
+
 type clog struct {
 	Entry *widget.Entry
 	Lines []string
@@ -191,8 +273,8 @@ type clog struct {
 
 func (l *clog) Write(p []byte) (int, error) {
 	l.Lines = append(l.Lines, string(p))
-	if len(l.Lines) > 1000 {
-		l.Lines = l.Lines[len(l.Lines)-1000:]
+	if len(l.Lines) > MAX_LINES {
+		l.Lines = l.Lines[len(l.Lines)-MAX_LINES:]
 	}
 	l.Entry.SetText(strings.Join(l.Lines, ""))
 	l.Entry.CursorRow = len(l.Lines) - 1

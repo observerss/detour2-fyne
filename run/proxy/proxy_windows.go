@@ -8,6 +8,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 	"syscall"
@@ -127,7 +128,6 @@ func SetGlobalProxy(proxyServer string, bypasses ...string) error {
 	if err != nil {
 		return err
 	}
-
 	var bypassBuilder strings.Builder
 	// 地址过滤配置
 	if bypasses != nil {
@@ -150,7 +150,7 @@ func SetGlobalProxy(proxyServer string, bypasses ...string) error {
 		{dwOption: _INTERNET_PER_CONN_PROXY_BYPASS, value: bypassAddr},
 	}
 	param.pOptions = uintptr(unsafe.Pointer(&options[0]))
-	ret, _, infoPtr := syscall.SyscallN(internetSetOption,
+	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
 		4,
 		0,
 		_INTERNET_OPTION_PER_CONNECTION_OPTION,
@@ -158,6 +158,7 @@ func SetGlobalProxy(proxyServer string, bypasses ...string) error {
 		unsafe.Sizeof(param),
 		0, 0)
 	// fmt.Printf(">> Ret [%d] Setting options: %s\n", ret, infoPtr)
+	log.Println("aa", ret)
 	if ret != 1 {
 		return fmt.Errorf("%s", infoPtr)
 	}
@@ -173,7 +174,7 @@ func Off() error {
 		//value:    _PROXY_TYPE_AUTO_DETECT | _PROXY_TYPE_DIRECT}
 		value: _PROXY_TYPE_DIRECT}
 	param.pOptions = uintptr(unsafe.Pointer(&option))
-	ret, _, infoPtr := syscall.SyscallN(internetSetOption,
+	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
 		4,
 		0,
 		_INTERNET_OPTION_PER_CONNECTION_OPTION,
@@ -189,7 +190,7 @@ func Off() error {
 
 // Flush 更新系统配置使生效
 func Flush() error {
-	ret, _, infoPtr := syscall.SyscallN(internetSetOption,
+	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
 		4,
 		0,
 		_INTERNET_OPTION_PROXY_SETTINGS_CHANGED,
@@ -200,7 +201,7 @@ func Flush() error {
 		return fmt.Errorf("%s", infoPtr)
 	}
 
-	ret, _, infoPtr = syscall.SyscallN(internetSetOption,
+	ret, _, infoPtr = syscall.Syscall6(internetSetOption,
 		4,
 		0,
 		_INTERNET_OPTION_REFRESH,
