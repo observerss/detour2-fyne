@@ -1,13 +1,13 @@
 package profile
 
 type Region struct {
-	Name    string
-	Display string
+	Name    string `json:"name,omitempty"`
+	Display string `json:"display,omitempty"`
 }
 
 type CloudProvider struct {
-	Name    string
-	Display string
+	Name    string `json:"name,omitempty"`
+	Display string `json:"display,omitempty"`
 }
 
 type Profile struct {

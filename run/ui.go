@@ -255,6 +255,7 @@ func (ui *UI) LoadRun() {
 	run, err := LoadRun()
 	if err != nil {
 		log.Println(err)
+		return
 	}
 	ui.ProfileSelect.SetSelected(run.ProfileName)
 	ui.LocalPort.SetText(run.LocalPort)
