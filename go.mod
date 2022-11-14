@@ -5,7 +5,7 @@ go 1.19
 require (
 	fyne.io/fyne/v2 v2.2.4
 	github.com/flopp/go-findfont v0.1.0
-	github.com/observerss/detour2 v0.3.6
+	github.com/observerss/detour2 v0.3.10
 )
 
 require (
