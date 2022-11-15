@@ -8,7 +8,6 @@ package proxy
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"strings"
 	"syscall"
@@ -158,7 +157,6 @@ func SetGlobalProxy(proxyServer string, bypasses ...string) error {
 		unsafe.Sizeof(param),
 		0, 0)
 	// fmt.Printf(">> Ret [%d] Setting options: %s\n", ret, infoPtr)
-	log.Println("aa", ret)
 	if ret != 1 {
 		return fmt.Errorf("%s", infoPtr)
 	}

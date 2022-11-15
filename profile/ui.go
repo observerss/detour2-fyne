@@ -120,6 +120,10 @@ func (ui *UI) SetupBindings() {
 
 func (ui *UI) ResetLeft() {
 	profs, err := LoadProfiles()
+	if err != nil {
+		logger.Error.Println(err.Error())
+	}
+
 	ui.Profs = profs
 	var names []string
 	if err != nil {
@@ -139,6 +143,7 @@ func (ui *UI) ResetLeft() {
 	if ui.CurrentIdx >= len(names) {
 		ui.CurrentIdx = len(names) - 1
 	}
+
 	if ui.CurrentIdx >= 0 {
 		ui.Left.Select(ui.CurrentIdx)
 	}
@@ -293,11 +298,7 @@ func (ui *UI) HandleSave() {
 		return
 	}
 
-	profs, err := LoadProfiles()
-	if err != nil {
-		ui.PromptDialog("保存失败", err.Error(), func(b bool) {})
-		return
-	}
+	profs, _ := LoadProfiles()
 
 	profs[prof.Name] = prof
 
@@ -320,6 +321,10 @@ func (ui *UI) HandleSave() {
 
 func (ui *UI) HandleDelete() {
 	names := GetProfileNames(ui.Profs)
+	if len(names) <= ui.CurrentIdx {
+		ui.PromptDialog("错误", "无可删除项", func(b bool) {})
+		return
+	}
 	name := names[ui.CurrentIdx]
 	prof, ok := ui.Profs[name]
 	if !ok {

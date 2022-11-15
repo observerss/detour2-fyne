@@ -6,7 +6,6 @@ package startup
 
 import (
 	"bytes"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,9 +17,7 @@ func Enable() error {
 	path, _ := os.Executable()
 	ps := New()
 	WIN_CREATE_SHORTCUT = strings.Replace(WIN_CREATE_SHORTCUT, "PLACEHOLDER", path, 1)
-	stdOut, stdErr, err := ps.execute(WIN_CREATE_SHORTCUT)
-	log.Printf("CreateShortcut:\nStdOut : '%s'\nStdErr: '%s'\nErr: %s",
-		strings.TrimSpace(stdOut), stdErr, err)
+	_, _, err := ps.execute(WIN_CREATE_SHORTCUT)
 	return err
 }
 

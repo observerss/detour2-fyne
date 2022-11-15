@@ -4,5 +4,5 @@ Website = "https://github.com/observerss/detour2-fyne"
   Icon = "Icon.png"
   Name = "Detour2"
   ID = "github.com/observerss/detour2-fyne"
-  Version = "0.1.1"
-  Build = 10
+  Version = "0.1.2"
+  Build = 60

@@ -70,13 +70,12 @@ func (ui *UI) MakeUI() fyne.CanvasObject {
 	// initializae
 	ui.SetupBindings()
 	ui.ResetUI()
-
 	grid := container.New(layout.NewFormLayout(),
 		widget.NewLabel(TextFCLabel), ui.ProfileSelect,
 		layout.NewSpacer(), layout.NewSpacer(),
 		widget.NewLabel(TextPortLabel), ui.LocalPort,
 		layout.NewSpacer(), layout.NewSpacer(),
-		ui.RunOnStartup, layout.NewSpacer(),
+		ui.RunOnStartup, ui.UseGlobalProxy,
 	)
 
 	submit := container.NewCenter(container.NewHBox(ui.ToggleRun, layout.NewSpacer(), ui.Exit))

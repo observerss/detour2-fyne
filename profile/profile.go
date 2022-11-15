@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/observerss/detour2-fyne/utils"
 )
@@ -53,11 +54,23 @@ func SaveProfiles(profs map[string]*Profile) error {
 }
 
 func GetProfilePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", nil
+	var home, path string
+	var err error
+	switch runtime.GOOS {
+	case "android":
+		// hardcode data dir, should get it from getFilesDir android api
+		home = "/storage/emulated/0/Android/data/com.detour2/files/"
+		path = filepath.Join(home, "profiles.json")
+	case "ios":
+		home = "???"
+	default:
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", nil
+		}
+		path = filepath.Join(home, ".detour", "profiles.json")
+		err = utils.EnsureDir(path)
 	}
-	path := filepath.Join(home, ".detour", "profiles.json")
-	utils.EnsureDir(path)
+
 	return path, err
 }
