@@ -2,7 +2,7 @@ Website = "https://github.com/observerss/detour2-fyne"
 
 [Details]
   Icon = "Icon.png"
-  Name = "Detour2"
+  Name = "dist/Detour2"
   ID = "github.com/observerss/detour2-fyne"
   Version = "0.1.2"
-  Build = 77
+  Build = 79

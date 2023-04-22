@@ -5,14 +5,12 @@ go 1.19
 require (
 	fyne.io/fyne/v2 v2.2.4
 	github.com/flopp/go-findfont v0.1.0
-	github.com/observerss/detour2 v0.3.10
+	github.com/observerss/detour2 v0.3.11
 )
 
 require (
 	fyne.io/systray v1.10.1-0.20220621085403-9a2652634e93 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
-	github.com/BurntSushi/toml v1.1.0 // indirect
-	github.com/Kodeworks/golang-image-ico v0.0.0-20141118225523-73f0f4cfade9 // indirect
 	github.com/Microsoft/go-winio v0.6.0 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-fc-util v0.0.6 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-spi v0.0.4 // indirect
@@ -34,7 +32,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/fredbi/uri v0.0.0-20181227131451-3dcfdacbaaf3 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
-	github.com/fyne-io/fyne-cross v1.3.0 // indirect
 	github.com/fyne-io/gl-js v0.0.0-20220119005834-d2da28d9ccfe // indirect
 	github.com/fyne-io/glfw-js v0.0.0-20220120001248-ee7290d23504 // indirect
 	github.com/fyne-io/image v0.0.0-20220602074514-4956b0afb3d2 // indirect

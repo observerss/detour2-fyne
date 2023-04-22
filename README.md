@@ -10,6 +10,7 @@ mingw64
 go install fyne.io/fyne/v2/cmd/fyne@latest
 go mod tidy
 fyne package --release
+& 'C:\Program Files (x86)\NSIS\makensis.exe' setup.nsi
 ```
 
 ### Android
