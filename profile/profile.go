@@ -3,13 +3,20 @@ package profile
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
 
 	"github.com/observerss/detour2-fyne/utils"
 )
 
 var EmptyProfile = map[string]*Profile{}
+
+type runState struct {
+	ProfileName    string `json:"profileName,omitempty"`
+	Socks5Port     string `json:"socks5Port,omitempty"`
+	HTTPPort       string `json:"httpPort,omitempty"`
+	LocalPort      string `json:"localPort,omitempty"`
+	RunOnStartup   bool   `json:"runOnStartup,omitempty"`
+	UseGlobalProxy bool   `json:"useGlobalProxy,omitempty"`
+}
 
 func LoadProfiles() (map[string]*Profile, error) {
 	path, err := GetProfilePath()
@@ -18,6 +25,9 @@ func LoadProfiles() (map[string]*Profile, error) {
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return defaultProfiles(), nil
+		}
 		return EmptyProfile, err
 	}
 	profs := make(map[string]*Profile, 0)
@@ -25,22 +35,26 @@ func LoadProfiles() (map[string]*Profile, error) {
 	if err != nil {
 		return EmptyProfile, err
 	}
-	for _, prof := range profs {
-		prof.AccessKeyId = Decrypt(prof.AccessKeyId)
-		prof.AccessKeySecret = Decrypt(prof.AccessKeySecret)
-		prof.AccountId = Decrypt(prof.AccountId)
+	if len(profs) == 0 {
+		return defaultProfiles(), nil
 	}
-	return profs, nil
+	return NormalizeProfiles(profs), nil
 }
 
 func SaveProfiles(profs map[string]*Profile) error {
+	profs = NormalizeProfiles(profs)
 	tosave := make(map[string]*Profile, 0)
 	for _, prof := range profs {
+		if prof == nil || prof.Name == "" {
+			continue
+		}
 		var newprof = *prof
-		newprof.AccessKeyId = Encrypt(prof.AccessKeyId)
-		newprof.AccessKeySecret = Encrypt(prof.AccessKeySecret)
-		newprof.AccountId = Encrypt(prof.AccountId)
 		tosave[newprof.Name] = &newprof
+	}
+	if len(tosave) == 0 {
+		for _, name := range DefaultProfileNames() {
+			tosave[name] = NewDefaultProfileByName(name)
+		}
 	}
 	data, err := json.MarshalIndent(tosave, "", "  ")
 	if err != nil {
@@ -54,23 +68,34 @@ func SaveProfiles(profs map[string]*Profile) error {
 }
 
 func GetProfilePath() (string, error) {
-	var home, path string
-	var err error
-	switch runtime.GOOS {
-	case "android":
-		// hardcode data dir, should get it from getFilesDir android api
-		home = "/storage/emulated/0/Android/data/com.detour2/files/"
-		path = filepath.Join(home, "profiles.json")
-	case "ios":
-		home = "???"
-	default:
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return "", nil
-		}
-		path = filepath.Join(home, ".detour", "profiles.json")
-		err = utils.EnsureDir(path)
-	}
+	return utils.AppConfigFile("profiles.json")
+}
 
-	return path, err
+func defaultProfiles() map[string]*Profile {
+	return DefaultProfiles()
+}
+
+func SetCurrentProfileName(name string) error {
+	name = NormalizeProfileName(name)
+	path, err := utils.AppConfigFile("run.json")
+	if err != nil {
+		return err
+	}
+	state := &runState{}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else if len(content) > 0 {
+		if err := json.Unmarshal(content, state); err != nil {
+			return err
+		}
+	}
+	state.ProfileName = name
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }

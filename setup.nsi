@@ -1,20 +1,29 @@
 ; The name of the installer
 Name "Detour2"
 
+!define PRODUCT_VERSION "0.2.0"
+
 ; To change from default installer icon:
 ;Icon "Icon.png"
 
 ; The setup filename
-OutFile "dist\Detour_Setup_v0.1.2.exe"
+OutFile "dist\Detour_Setup_v0.2.0.exe"
 
 ; The default installation directory
-InstallDir $PROGRAMFILES\Detour2
+InstallDir $LOCALAPPDATA\Programs\Detour2
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
-InstallDirRegKey HKLM "Software\Detour2" "Install_Dir"
+InstallDirRegKey HKCU "Software\Detour2" "Install_Dir"
 
-RequestExecutionLevel admin
+RequestExecutionLevel user
+
+VIProductVersion "0.2.0.0"
+VIAddVersionKey "ProductName" "Detour2"
+VIAddVersionKey "CompanyName" "Detour2"
+VIAddVersionKey "FileDescription" "Detour2 local proxy client"
+VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
+VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
 
 ;--------------------------------
 
@@ -47,13 +56,16 @@ Section "Detour2 (required)"
   ; MAKE SURE YOU PUT ALL THE FILES HERE IN THE UNINSTALLER TOO
   
   ; Write the installation path into the registry
-  WriteRegStr HKLM SOFTWARE\Detour2 "Install_Dir" "$INSTDIR"
+  WriteRegStr HKCU SOFTWARE\Detour2 "Install_Dir" "$INSTDIR"
   
   ; Write the uninstall keys for Windows
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "DisplayName" "Detour2"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "NoRepair" 1
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "DisplayName" "Detour2"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "Publisher" "Detour2"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "DisplayVersion" "${PRODUCT_VERSION}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "NoModify" 1
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2" "NoRepair" 1
   WriteUninstaller "$INSTDIR\uninstall.exe"
   
 SectionEnd
@@ -75,8 +87,8 @@ SectionEnd
 Section "Uninstall"
   
   ; Remove registry keys
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2"
-  DeleteRegKey HKLM SOFTWARE\Detour2
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Detour2"
+  DeleteRegKey HKCU SOFTWARE\Detour2
 
   ; Remove files and uninstaller
   ; MAKE SURE NOT TO USE A WILDCARD. IF A
@@ -93,7 +105,3 @@ Section "Uninstall"
   RMDir "$INSTDIR"
 
 SectionEnd
-
-Function .oninstsuccess   
-Exec "$INSTDIR\Detour2.exe"   
-FunctionEnd

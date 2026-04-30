@@ -2,97 +2,68 @@
 package main
 
 import (
-	"fmt"
+	"io"
 	"os"
 	"runtime"
-	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 
-	"github.com/flopp/go-findfont"
 	"github.com/observerss/detour2-fyne/profile"
 	"github.com/observerss/detour2-fyne/run"
 	th "github.com/observerss/detour2-fyne/theme"
 	"github.com/observerss/detour2/logger"
 )
 
-func init() {
-	// setup chinese font
-	switch runtime.GOOS {
-	case "android":
-		// only tested on MIUI
-		files, err := os.ReadDir("/system/fonts")
-		if err != nil {
-			return
-		}
-		for _, name := range []string{"MiSansVF.ttf", "NotoSerifCJK-Regular.ttc", "NotoSansCJK-Regular.ttc"} {
-			for _, f := range files {
-				if strings.Contains(f.Name(), name) {
-					os.Setenv("FYNE_FONT", fmt.Sprintf("/system/fonts/%s", f.Name()))
-					return
-				}
-			}
-		}
-	default:
-		fontPaths := findfont.List()
-		for _, name := range []string{"msyh.ttc", "simsun.ttf", "simhei.ttf", "simkai.ttf"} {
-			for _, path := range fontPaths {
-				if strings.Contains(path, name) {
-					os.Setenv("FYNE_FONT", path)
-					return
-				}
-			}
-		}
-	}
-}
-
 var (
-	Title       = "Detour2"
-	TextRun     = "运行"
-	TextProfile = "配置"
-	TextDisplay = "Show"
-	ProfileSize = fyne.Size{Width: 720, Height: 560}
+	AppID                  = "github.com.observerss.detour2fyne"
+	Title                  = "Detour2"
+	TextRun                = "运行"
+	TextProfile            = "配置"
+	TextDisplay            = "显示主窗口"
+	TextTrayMinimizedTitle = "已最小化到托盘"
+	TextTrayMinimizedBody  = "Detour2 仍在后台运行，可通过托盘菜单重新打开。"
+	TextLog                = "日志"
+	ProfileSize            = fyne.Size{Width: 720, Height: 560}
 )
 
 func main() {
-	a := app.New()
+	a := app.NewWithID(AppID)
 	a.Settings().SetTheme(th.RunTheme())
 	w := a.NewWindow(Title)
 	w.SetIcon(resourceIconPng)
 	w.Resize(ProfileSize)
-
-	if desk, ok := a.(desktop.App); ok {
-		display := fyne.NewMenuItem(TextDisplay, func() {
-			w.Show()
-		})
-		m := fyne.NewMenu(Title, display)
-
-		desk.SetSystemTrayMenu(m)
-		desk.SetSystemTrayIcon(resourceIconPng)
-	}
-
-	logger.Info.SetOutput(os.Stdout)
-	logger.Error.SetOutput(os.Stderr)
+	setupDesktop(a, w)
 
 	runUI := run.NewUI(w)
 	profileUI := profile.NewUI(w)
-	tabs := container.NewAppTabs(
-		container.NewTabItem(TextRun, runUI.MakeUI()),
-		container.NewTabItem(TextProfile, profileUI.MakeUI()),
-	)
-	tabs.SetTabLocation(container.TabLocationTop)
+	logger.Info.SetOutput(io.MultiWriter(os.Stdout, runUI.Logs))
+	logger.Error.SetOutput(io.MultiWriter(os.Stderr, runUI.Logs))
+
+	var tabs *container.AppTabs
+	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		tabs = container.NewAppTabs(
+			container.NewTabItemWithIcon(TextRun, theme.MediaPlayIcon(), runUI.MakeUI()),
+			container.NewTabItemWithIcon(TextProfile, theme.SettingsIcon(), profileUI.MakeUI()),
+			container.NewTabItemWithIcon(TextLog, theme.HistoryIcon(), runUI.MakeLogUI()),
+		)
+		tabs.SetTabLocation(container.TabLocationBottom)
+	} else {
+		tabs = container.NewAppTabs(
+			container.NewTabItem(TextRun, runUI.MakeUI()),
+			container.NewTabItem(TextProfile, profileUI.MakeUI()),
+			container.NewTabItem(TextLog, runUI.MakeLogUI()),
+		)
+		tabs.SetTabLocation(container.TabLocationTop)
+	}
+
 	tabs.OnSelected = func(t *container.TabItem) {
 		if t.Text == TextRun {
 			a.Settings().SetTheme(th.RunTheme())
 			runUI.ResetUI()
-		} else {
-			// a.Settings().SetTheme(theme.DefaultTheme())
-			logger.Info.SetOutput(os.Stdout)
-			logger.Error.SetOutput(os.Stderr)
-
+		} else if t.Text == TextProfile {
 			// android needs manually refresh
 			if runtime.GOOS == "android" {
 				profileUI.Delete.Refresh()
@@ -106,8 +77,5 @@ func main() {
 	}
 
 	w.SetContent(tabs)
-	w.SetCloseIntercept(func() {
-		w.Hide()
-	})
 	w.ShowAndRun()
 }

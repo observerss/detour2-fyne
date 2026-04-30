@@ -1,81 +1,157 @@
 package profile
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
 
-var AliyunRegions = []*Region{
-	{Name: "cn-hongkong", Display: "中国香港"},
-	{Name: "ap-southeast-1", Display: "新加坡"},
-	{Name: "ap-southeast-2", Display: "澳大利亚（悉尼）"},
-	{Name: "ap-southeast-3", Display: "马来西亚（吉隆坡）"},
-	{Name: "ap-southeast-5", Display: "印度尼西亚（雅加达）"},
-	{Name: "ap-southeast-6", Display: "菲律宾（马尼拉）"},
-	{Name: "ap-southeast-7", Display: "泰国（曼谷）"},
-	{Name: "ap-south-1", Display: "印度（孟买）"},
-	{Name: "ap-northeast-1", Display: "日本（东京）"},
-	{Name: "ap-northeast-2", Display: "韩国（首尔）"},
-	{Name: "us-west-1", Display: "美国（硅谷）"},
-	{Name: "us-east-1", Display: "美国（弗吉尼亚）"},
-	{Name: "eu-central-1", Display: "德国（法兰克福）"},
-	{Name: "eu-west-1", Display: "英国（伦敦）"},
-	{Name: "me-east-1", Display: "阿联酋（迪拜）"},
+const (
+	DefaultProfileName   = "hk"
+	DefaultRemoteAddress = DefaultHKRemoteAddress
+	DefaultPassword      = "jy230101"
+
+	DefaultJPRemoteAddress  = "tcp://47.116.180.26:7777"
+	DefaultSIGRemoteAddress = "tcp://47.116.180.26:17779"
+	DefaultHKRemoteAddress  = "tcp://47.116.180.26:17780"
+)
+
+var defaultProfileNames = []string{"hk", "jp", "sig"}
+
+func NewDefaultProfile() *Profile {
+	return NewDefaultProfileByName(DefaultProfileName)
 }
 
-var CloudProviders = []*CloudProvider{
-	{Name: "aliyun", Display: "阿里云"},
-}
-
-func GetAliyunRegions() []string {
-	regions := make([]string, 0)
-	for _, r := range AliyunRegions {
-		regions = append(regions, r.Display)
+func NewDefaultProfileByName(name string) *Profile {
+	if name == "" {
+		name = DefaultProfileName
 	}
-	return regions
-}
-
-func GetCloudProviers() []string {
-	providers := make([]string, 0)
-	for _, p := range CloudProviders {
-		providers = append(providers, p.Display)
+	return &Profile{
+		Name:          name,
+		RemoteAddress: defaultRemoteAddressForName(name),
+		Password:      DefaultPassword,
 	}
-	return providers
 }
 
-func GetProviderValue(s string) (string, error) {
-	for _, p := range CloudProviders {
-		if p.Display == s {
-			return p.Name, nil
+func defaultRemoteAddressForName(name string) string {
+	switch name {
+	case "jp":
+		return DefaultJPRemoteAddress
+	case "sig":
+		return DefaultSIGRemoteAddress
+	case "hk":
+		return DefaultHKRemoteAddress
+	default:
+		return DefaultRemoteAddress
+	}
+}
+
+func DefaultProfileNames() []string {
+	names := make([]string, len(defaultProfileNames))
+	copy(names, defaultProfileNames)
+	return names
+}
+
+func DefaultProfiles() map[string]*Profile {
+	profs := make(map[string]*Profile, len(defaultProfileNames))
+	for _, name := range DefaultProfileNames() {
+		profs[name] = NewDefaultProfileByName(name)
+	}
+	return profs
+}
+
+func NormalizeProfiles(profs map[string]*Profile) map[string]*Profile {
+	if len(profs) == 0 {
+		return DefaultProfiles()
+	}
+	if oldDefault, ok := profs["default"]; ok {
+		if _, hasHK := profs[DefaultProfileName]; !hasHK && oldDefault != nil {
+			migrated := *oldDefault
+			migrated.Name = DefaultProfileName
+			profs[DefaultProfileName] = &migrated
+		}
+		delete(profs, "default")
+	}
+	for name, prof := range profs {
+		if prof == nil {
+			delete(profs, name)
+			continue
+		}
+		if prof.Name == "" || prof.Name == "default" {
+			prof.Name = name
+		}
+		if prof.Name == "default" {
+			prof.Name = DefaultProfileName
+		}
+		if prof.RemoteAddress == "" {
+			prof.RemoteAddress = defaultRemoteAddressForName(prof.Name)
+		}
+		if prof.Password == "" {
+			prof.Password = DefaultPassword
 		}
 	}
-	return "", fmt.Errorf("provider name not found: %s", s)
-}
-
-func GetProvider(s string) (*CloudProvider, error) {
-	for _, p := range CloudProviders {
-		if p.Display == s {
-			return p, nil
+	for _, name := range DefaultProfileNames() {
+		if _, ok := profs[name]; !ok {
+			profs[name] = NewDefaultProfileByName(name)
 		}
 	}
-	return nil, fmt.Errorf("provider name not found: %s", s)
-}
-
-func GetAliyunRegionValue(s string) (string, error) {
-	for _, r := range AliyunRegions {
-		if r.Display == s {
-			return r.Name, nil
-		}
+	if len(profs) == 0 {
+		return DefaultProfiles()
 	}
-	return "", fmt.Errorf("region name not found: %s", s)
+	return profs
 }
 
-func GetAliyunRegion(s string) (*Region, error) {
-	for _, r := range AliyunRegions {
-		if r.Display == s {
-			return r, nil
-		}
+func NormalizeProfileName(name string) string {
+	if name == "" || name == "default" {
+		return DefaultProfileName
 	}
-	return nil, fmt.Errorf("region name not found: %s", s)
+	return name
 }
 
-func GetImageByRegion(region string) string {
-	return fmt.Sprintf("registry-vpc.%s.aliyuncs.com/hjcrocks/detour2:latest", region)
+func NormalizeRemoteAddress(value string) (string, error) {
+	items := strings.Split(value, ",")
+	remotes := make([]string, 0, len(items))
+	for _, item := range items {
+		remote, err := normalizeRemoteAddress(strings.TrimSpace(item))
+		if err != nil {
+			return "", err
+		}
+		remotes = append(remotes, remote)
+	}
+	if len(remotes) == 0 {
+		return "", fmt.Errorf("上游地址不能为空")
+	}
+	return strings.Join(remotes, ","), nil
+}
+
+func normalizeRemoteAddress(value string) (string, error) {
+	if value == "" {
+		return "", fmt.Errorf("上游地址不能为空")
+	}
+	if !strings.Contains(value, "://") {
+		value = "tcp://" + value
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("上游地址格式错误: %w", err)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("上游地址缺少 host: %s", value)
+	}
+
+	switch parsed.Scheme {
+	case "tcp", "http":
+		parsed.Scheme = "ws"
+	case "https":
+		parsed.Scheme = "wss"
+	case "ws", "wss":
+	default:
+		return "", fmt.Errorf("不支持的上游地址协议: %s", parsed.Scheme)
+	}
+
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = "/ws"
+	}
+	return parsed.String(), nil
 }

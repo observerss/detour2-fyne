@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+
+vendor/
+dist/
+.android-vpn-build/
+test_output.txt
+.tmp/

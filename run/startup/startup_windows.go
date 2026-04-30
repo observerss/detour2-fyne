@@ -5,56 +5,59 @@
 package startup
 
 import (
-	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
+
+	"golang.org/x/sys/windows/registry"
+)
+
+const (
+	runKeyPath   = `Software\Microsoft\Windows\CurrentVersion\Run`
+	runValueName = "Detour2"
 )
 
 // Enable 开机自启动
 func Enable() error {
-	path, _ := os.Executable()
-	ps := New()
-	WIN_CREATE_SHORTCUT = strings.Replace(WIN_CREATE_SHORTCUT, "PLACEHOLDER", path, 1)
-	_, _, err := ps.execute(WIN_CREATE_SHORTCUT)
-	return err
+	path, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+
+	if err := key.SetStringValue(runValueName, `"`+path+`"`); err != nil {
+		return err
+	}
+
+	return removeLegacyStartupShortcut()
 }
 
 // Disable 开机不自启动
 func Disable() error {
-	home, _ := os.UserHomeDir()
-	file := filepath.Join(home, `AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Detour2.lnk`)
-	return os.Remove(file)
-}
-
-type PowerShell struct {
-	powerShell string
-}
-
-var WIN_CREATE_SHORTCUT = `$WshShell = New-Object -comObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$HOME\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Detour2.lnk")
-$Shortcut.TargetPath = "PLACEHOLDER"
-$Shortcut.Save()`
-
-// New create new session
-func New() *PowerShell {
-	ps, _ := exec.LookPath("powershell.exe")
-	return &PowerShell{
-		powerShell: ps,
+	key, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if err == nil {
+		defer key.Close()
+		if err := key.DeleteValue(runValueName); err != nil && err != registry.ErrNotExist {
+			return err
+		}
 	}
+
+	return removeLegacyStartupShortcut()
 }
 
-func (p *PowerShell) execute(args ...string) (stdOut string, stdErr string, err error) {
-	args = append([]string{"-NoProfile", "-NonInteractive"}, args...)
-	cmd := exec.Command(p.powerShell, args...)
+func removeLegacyStartupShortcut() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	stdOut, stdErr = stdout.String(), stderr.String()
-	return
+	file := filepath.Join(home, `AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Detour2.lnk`)
+	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }

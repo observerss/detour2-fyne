@@ -3,88 +3,98 @@ package profile
 import (
 	"fmt"
 	"log"
-	"os"
+	"runtime"
 	"sort"
+	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/gorilla/websocket"
 	lo "github.com/observerss/detour2-fyne/layout"
-	"github.com/observerss/detour2/common"
-	"github.com/observerss/detour2/deploy"
 	"github.com/observerss/detour2/logger"
 )
 
 type UI struct {
-	Left            *widget.List
-	Name            *widget.Entry
-	CloudProvider   *widget.Select
-	AccessKeyId     *widget.Entry
-	AccessKeySecret *widget.Entry
-	AccountId       *widget.Entry
-	ServiceName     *widget.Entry
-	FunctionName    *widget.Entry
-	TriggerName     *widget.Entry
-	Password        *widget.Entry
-	Region          *widget.Select
-	Image           *widget.Entry
-	Delete          *widget.Button
-	Reset           *widget.Button
-	Test            *widget.Button
-	Save            *widget.Button
-	Profs           map[string]*Profile
-	Parent          fyne.Window
-	CurrentIdx      int
+	Left          *widget.List
+	Name          *widget.Entry
+	RemoteAddress *widget.Entry
+	Password      *widget.Entry
+	TestStatus    *widget.Label
+	New           *widget.Button
+	Delete        *widget.Button
+	Reset         *widget.Button
+	Test          *widget.Button
+	Save          *widget.Button
+	Profs         map[string]*Profile
+	Parent        fyne.Window
+	CurrentIdx    int
+	OriginalName  string
 }
 
 func NewUI(parent fyne.Window) *UI {
+	remoteAddress := widget.NewMultiLineEntry()
+	remoteAddress.SetMinRowsVisible(3)
 	return &UI{
-		Left:            &widget.List{},
-		Name:            widget.NewEntry(),
-		CloudProvider:   widget.NewSelect([]string{}, func(s string) {}),
-		AccessKeyId:     widget.NewEntry(),
-		AccessKeySecret: widget.NewEntry(),
-		AccountId:       widget.NewEntry(),
-		ServiceName:     widget.NewEntry(),
-		FunctionName:    widget.NewEntry(),
-		TriggerName:     widget.NewEntry(),
-		Password:        widget.NewEntry(),
-		Image:           widget.NewEntry(),
-		Region:          widget.NewSelect([]string{}, func(s string) {}),
-		Parent:          parent,
+		Left:          &widget.List{},
+		Name:          widget.NewEntry(),
+		RemoteAddress: remoteAddress,
+		Password:      widget.NewPasswordEntry(),
+		Parent:        parent,
 	}
 }
 
 func (ui *UI) MakeUI() fyne.CanvasObject {
+	ui.TestStatus = widget.NewLabel("请选择或新建一个配置")
+	ui.New = widget.NewButton("新建", ui.HandleNew)
 	ui.Delete = widget.NewButton("删除", ui.HandleDelete)
 	ui.Reset = widget.NewButton("重置", ui.ResetForm)
-	ui.Test = widget.NewButton("测试", ui.HandleTest)
+	ui.Test = widget.NewButton("测试连接", ui.HandleTest)
 	ui.Save = widget.NewButton("保存", ui.HandleSave)
+	ui.TestStatus.Wrapping = fyne.TextWrapWord
 
-	// initialize
 	ui.SetupBindings()
 	ui.ResetForm()
 	ui.ResetLeft()
+	if profileMobileLayout() {
+		listTitle := widget.NewLabelWithStyle("配置线路", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		listBox := container.New(lo.NewFixedHeight(profileMobileListHeight()), ui.Left)
+		form := container.NewVBox(
+			mobileProfileField("配置名 *", ui.Name),
+			mobileProfileField("上游地址 *", ui.RemoteAddress),
+			mobileProfileField("密码 *", ui.Password),
+		)
+		buttons := container.NewVBox(
+			container.NewGridWithColumns(2, ui.New, ui.Delete),
+			container.NewGridWithColumns(2, ui.Reset, ui.Test),
+			ui.Save,
+		)
+		content := container.NewVBox(
+			listTitle,
+			listBox,
+			widget.NewSeparator(),
+			form,
+			ui.TestStatus,
+			buttons,
+		)
+		return container.NewVScroll(lo.NewPaddingContainer(
+			content,
+			&lo.Padding{Top: 12, Bottom: 12, Left: 12, Right: 12},
+		))
+	}
 
-	// layout
 	form := lo.NewPaddingContainer(container.New(layout.NewFormLayout(),
 		widget.NewLabel("配置名 *"), ui.Name,
-		widget.NewLabel("云服务商"), ui.CloudProvider,
-		widget.NewLabel("AccessKeyId *"), ui.AccessKeyId,
-		widget.NewLabel("AccessKeySecret *"), ui.AccessKeySecret,
-		widget.NewLabel("主账号ID *"), ui.AccountId,
-		widget.NewLabel("可用区"), ui.Region,
-		widget.NewLabel("服务名"), ui.ServiceName,
-		widget.NewLabel("函数名"), ui.FunctionName,
-		widget.NewLabel("触发器名"), ui.TriggerName,
-		widget.NewLabel("密码"), ui.Password,
-		widget.NewLabel("镜像地址"), ui.Image,
+		widget.NewLabel("上游地址 *"), ui.RemoteAddress,
+		widget.NewLabel("密码 *"), ui.Password,
 	), &lo.Padding{Right: 10})
-	buttons := container.NewCenter(container.NewHBox(ui.Delete, layout.NewSpacer(), ui.Reset, layout.NewSpacer(), ui.Test, layout.NewSpacer(), ui.Save))
-	right := container.NewVBox(layout.NewSpacer(), form, layout.NewSpacer(), buttons, layout.NewSpacer())
+	buttons := container.NewCenter(container.NewHBox(ui.New, layout.NewSpacer(), ui.Delete, layout.NewSpacer(), ui.Reset, layout.NewSpacer(), ui.Test, layout.NewSpacer(), ui.Save))
+	right := container.NewVBox(layout.NewSpacer(), form, layout.NewSpacer(), ui.TestStatus, layout.NewSpacer(), buttons, layout.NewSpacer())
 
 	split := container.NewHSplit(container.NewHScroll(ui.Left), container.NewHScroll(right))
 	split.SetOffset(0.2)
@@ -92,8 +102,25 @@ func (ui *UI) MakeUI() fyne.CanvasObject {
 	return split
 }
 
+func mobileProfileField(label string, object fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewVBox(widget.NewLabel(label), object)
+}
+
+func profileMobileLayout() bool {
+	switch runtime.GOOS {
+	case "android", "ios":
+		return true
+	default:
+		return false
+	}
+}
+
+func profileMobileListHeight() float32 {
+	return widget.NewLabel("线路").MinSize().Height*4 + theme.Padding()*8
+}
+
 func GetProfileNames(profs map[string]*Profile) []string {
-	names := make([]string, 0)
+	names := make([]string, 0, len(profs))
 	for name := range profs {
 		names = append(names, name)
 	}
@@ -102,10 +129,6 @@ func GetProfileNames(profs map[string]*Profile) []string {
 }
 
 func (ui *UI) SetupBindings() {
-	ui.Region.OnChanged = func(s string) {
-		r, _ := GetAliyunRegionValue(s)
-		ui.Image.SetText(GetImageByRegion(r))
-	}
 	ui.Left.OnSelected = func(id int) {
 		ui.CurrentIdx = id
 		names := GetProfileNames(ui.Profs)
@@ -113,6 +136,9 @@ func (ui *UI) SetupBindings() {
 			prof, ok := ui.Profs[names[id]]
 			if ok {
 				ui.SetForm(prof)
+				if err := SetCurrentProfileName(names[id]); err != nil {
+					logger.Error.Println(err.Error())
+				}
 			}
 		}
 	}
@@ -122,15 +148,11 @@ func (ui *UI) ResetLeft() {
 	profs, err := LoadProfiles()
 	if err != nil {
 		logger.Error.Println(err.Error())
+		profs = defaultProfiles()
 	}
 
 	ui.Profs = profs
-	var names []string
-	if err != nil {
-		names = []string{"default"}
-	} else {
-		names = GetProfileNames(profs)
-	}
+	names := GetProfileNames(profs)
 	ui.Left.Length = func() int {
 		return len(names)
 	}
@@ -143,110 +165,84 @@ func (ui *UI) ResetLeft() {
 	if ui.CurrentIdx >= len(names) {
 		ui.CurrentIdx = len(names) - 1
 	}
+	if ui.CurrentIdx < 0 && len(names) > 0 {
+		ui.CurrentIdx = indexOfProfileName(names, DefaultProfileName)
+	}
 
 	if ui.CurrentIdx >= 0 {
 		ui.Left.Select(ui.CurrentIdx)
 	}
 }
 
+func indexOfProfileName(names []string, name string) int {
+	for i, item := range names {
+		if item == name {
+			return i
+		}
+	}
+	return 0
+}
+
 func (ui *UI) ResetForm() {
-	regions := GetAliyunRegions()
+	prof := NewDefaultProfile()
+	ui.SetForm(prof)
+	ui.RemoteAddress.SetPlaceHolder(DefaultRemoteAddress)
+	ui.Password.SetPlaceHolder(DefaultPassword)
+	ui.TestStatus.SetText("请选择或新建一个配置")
+}
 
-	providers := GetCloudProviers()
-	ui.CloudProvider.Options = providers
-	ui.CloudProvider.SetSelected(providers[0])
-	ui.CloudProvider.Disable()
-
-	ui.Name.SetText("default")
-
-	ui.AccessKeyId.SetText("")
-	ui.AccessKeyId.SetPlaceHolder("e.g. LTasdfEAhGcfasdfTbfds")
-
-	ui.AccessKeySecret.SetText("")
-	ui.AccessKeySecret.SetPlaceHolder("e.g. 8CEghqeqweqwrehNPFJwreY ")
-
-	ui.AccountId.SetText("")
-	ui.AccountId.SetPlaceHolder("e.g. 14123451334236")
-
-	ui.Region.Options = regions
-	ui.Region.SetSelected(regions[0])
-
-	sname, _ := GenerateRandomString(3)
-	ui.ServiceName.SetText(sname)
-
-	fname, _ := GenerateRandomString(3)
-	ui.FunctionName.SetText(fname)
-
-	tname, _ := GenerateRandomString(5)
-	ui.TriggerName.SetText(tname)
-
-	pvalue, _ := GenerateRandomString(8)
-	ui.Password.SetText(pvalue)
+func (ui *UI) HandleNew() {
+	profs, err := LoadProfiles()
+	if err != nil {
+		ui.PromptDialog("新建失败", err.Error(), func(bool) {})
+		return
+	}
+	prof := NewDefaultProfile()
+	prof.Name = nextNewProfileName(profs)
+	profs[prof.Name] = prof
+	if err := SaveProfiles(profs); err != nil {
+		ui.PromptDialog("新建失败", err.Error(), func(bool) {})
+		return
+	}
+	ui.Profs = profs
+	ui.CurrentIdx = -1
+	ui.ResetLeft()
+	ui.Left.Refresh()
+	ui.Left.UnselectAll()
+	ui.selectProfile(prof.Name)
+	ui.TestStatus.SetText("已新建配置，请编辑后保存或测试连接")
 }
 
 func (ui *UI) SetForm(prof *Profile) {
+	if prof == nil {
+		prof = NewDefaultProfile()
+	}
+	ui.OriginalName = prof.Name
 	ui.Name.SetText(prof.Name)
-	ui.CloudProvider.SetSelected(prof.CloudProvider.Display)
-	ui.Region.SetSelected(prof.Region.Display)
-	ui.AccessKeyId.SetText(prof.AccessKeyId)
-	ui.AccessKeySecret.SetText(prof.AccessKeySecret)
-	ui.AccountId.SetText(prof.AccountId)
-	ui.ServiceName.SetText(prof.ServiceName)
-	ui.FunctionName.SetText(prof.FunctionName)
-	ui.TriggerName.SetText(prof.TriggerName)
+	ui.RemoteAddress.SetText(prof.RemoteAddress)
 	ui.Password.SetText(prof.Password)
 }
 
 func (ui *UI) ValidateForm() error {
-	if ui.Name.Text == "" {
-		return fmt.Errorf("Form.Name should not be empty")
+	if strings.TrimSpace(ui.Name.Text) == "" {
+		return fmt.Errorf("配置名不能为空")
 	}
-
-	if ui.AccessKeyId.Text == "" {
-		return fmt.Errorf("Form.AccessKeyId should not be empty")
+	if strings.TrimSpace(ui.Password.Text) == "" {
+		return fmt.Errorf("密码不能为空")
 	}
-
-	if ui.AccessKeySecret.Text == "" {
-		return fmt.Errorf("Form.AccessKeySecret should not be empty")
-	}
-
-	if ui.AccountId.Text == "" {
-		return fmt.Errorf("Form.AccountId should not be empty")
-	}
-
-	_, err := GetProvider(ui.CloudProvider.Selected)
-	if err != nil {
-		return err
-	}
-
-	_, err = GetAliyunRegion(ui.Region.Selected)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := NormalizeRemoteAddress(ui.RemoteAddress.Text)
+	return err
 }
 
 func (ui *UI) GetForm() (*Profile, error) {
-	err := ui.ValidateForm()
-	if err != nil {
+	if err := ui.ValidateForm(); err != nil {
 		return nil, err
 	}
 
-	provider, _ := GetProvider(ui.CloudProvider.Selected)
-	region, _ := GetAliyunRegion(ui.Region.Selected)
-
 	prof := &Profile{
-		Name:            ui.Name.Text,
-		CloudProvider:   provider,
-		AccessKeyId:     ui.AccessKeyId.Text,
-		AccessKeySecret: ui.AccessKeySecret.Text,
-		AccountId:       ui.AccountId.Text,
-		Region:          region,
-		ServiceName:     ui.ServiceName.Text,
-		FunctionName:    ui.FunctionName.Text,
-		TriggerName:     ui.TriggerName.Text,
-		Password:        ui.Password.Text,
-		Image:           ui.Image.Text,
+		Name:          strings.TrimSpace(ui.Name.Text),
+		RemoteAddress: strings.TrimSpace(ui.RemoteAddress.Text),
+		Password:      ui.Password.Text,
 	}
 	return prof, nil
 }
@@ -254,81 +250,81 @@ func (ui *UI) GetForm() (*Profile, error) {
 func (ui *UI) HandleTest() {
 	prof, err := ui.GetForm()
 	if err != nil {
-		ui.PromptDialog("测试失败", err.Error(), func(b bool) {})
+		ui.PromptDialog("检查失败", err.Error(), func(bool) {})
 		return
 	}
-	conf := ConvertProfileToConfig(prof)
-
-	bar := widget.NewProgressBar()
-	text := widget.NewLabel("初始化中...")
-	d := dialog.NewCustom(
-		"测试中",
-		"关闭",
-		container.NewVBox(
-			bar,
-			text,
-		),
-		ui.Parent,
-	)
-	d.Resize(fyne.Size{Width: 640, Height: 240})
-	d.Show()
-
-	logger.Info.SetOutput(&clog{Text: text, Bar: bar})
-	logger.Error.SetOutput(&clog{Text: text, Bar: bar})
-	defer func() {
-		logger.Info.SetOutput(os.Stdout)
-		logger.Error.SetOutput(os.Stderr)
-	}()
-
-	err = deploy.DeployServer(conf)
-
+	remotes, err := NormalizeRemoteAddress(prof.RemoteAddress)
 	if err != nil {
-		text.SetText("测试失败: " + err.Error())
-	} else {
-		conf.Remove = true
-		deploy.DeployServer(conf)
-		text.SetText("测试成功, 已成功部署并销毁云函数")
+		ui.PromptDialog("检查失败", err.Error(), func(bool) {})
+		return
 	}
+	ui.Test.Disable()
+	ui.TestStatus.SetText("正在测试上游连接...")
+	go func() {
+		err := testRemoteConnections(remotes)
+		title := "测试成功"
+		message := "上游 WebSocket 握手成功: " + remotes
+		status := "测试成功：上游 WebSocket 握手成功"
+		if err != nil {
+			title = "测试失败"
+			message = err.Error()
+			status = "测试失败：" + err.Error()
+		}
+		fyne.Do(func() {
+			ui.Test.Enable()
+			ui.TestStatus.SetText(status)
+			ui.PromptDialog(title, message, func(bool) {})
+		})
+	}()
 }
 
 func (ui *UI) HandleSave() {
 	prof, err := ui.GetForm()
 	if err != nil {
-		ui.PromptDialog("保存失败", err.Error(), func(b bool) {})
+		ui.PromptDialog("保存失败", err.Error(), func(bool) {})
 		return
 	}
 
 	profs, _ := LoadProfiles()
-
+	if existing, ok := profs[prof.Name]; ok && (ui.OriginalName == "" || ui.OriginalName != prof.Name) && existing != nil {
+		ui.PromptDialog("保存失败", fmt.Sprintf("配置名已存在: %s", prof.Name), func(bool) {})
+		return
+	}
+	if ui.OriginalName != "" && ui.OriginalName != prof.Name {
+		delete(profs, ui.OriginalName)
+	}
 	profs[prof.Name] = prof
 
-	err = SaveProfiles(profs)
-	if err != nil {
-		ui.PromptDialog("保存失败", err.Error(), func(b bool) {})
+	if err = SaveProfiles(profs); err != nil {
+		ui.PromptDialog("保存失败", err.Error(), func(bool) {})
+		return
+	}
+	if err := SetCurrentProfileName(prof.Name); err != nil {
+		ui.PromptDialog("保存失败", err.Error(), func(bool) {})
 		return
 	}
 
-	// update ui
 	ui.Profs = profs
 	ui.ResetLeft()
 	ui.Left.Refresh()
-	names := GetProfileNames(ui.Profs)
-	prof = ui.Profs[names[ui.CurrentIdx]]
-	ui.SetForm(prof)
+	ui.selectProfile(prof.Name)
+	ui.TestStatus.SetText("已保存，并设为当前上游配置")
 
-	ui.PromptDialog("保存成功", "数据已保存", func(b bool) {})
+	ui.PromptDialog("保存成功", "数据已保存，并设为当前上游配置", func(bool) {})
 }
 
 func (ui *UI) HandleDelete() {
-	names := GetProfileNames(ui.Profs)
-	if len(names) <= ui.CurrentIdx {
-		ui.PromptDialog("错误", "无可删除项", func(b bool) {})
+	name := ui.OriginalName
+	if name == "" {
+		name = ui.selectedProfileName()
+	}
+	if name == "" {
+		ui.PromptDialog("错误", "无可删除项", func(bool) {})
 		return
 	}
-	name := names[ui.CurrentIdx]
 	prof, ok := ui.Profs[name]
 	if !ok {
-		log.Println("shouldn't happen")
+		log.Println("profile should exist")
 		return
 	}
 
@@ -339,34 +335,63 @@ func (ui *UI) HandleDelete() {
 			ui.ResetLeft()
 			ui.Left.Refresh()
 			names := GetProfileNames(ui.Profs)
-			prof = ui.Profs[names[ui.CurrentIdx]]
-			ui.SetForm(prof)
+			if len(names) > 0 {
+				ui.selectProfile(names[ui.CurrentIdx])
+			} else {
+				ui.ResetForm()
+				ui.Left.UnselectAll()
+				_ = SetCurrentProfileName("")
+			}
 		}
 	})
 }
 
-func ConvertProfileToConfig(prof *Profile) *common.DeployConfig {
-	conf := &common.DeployConfig{
-		AccessKeyId:     prof.AccessKeyId,
-		AccessKeySecret: prof.AccessKeySecret,
-		AccountId:       prof.AccountId,
-		Password:        prof.Password,
-		Region:          prof.Region.Name,
-		Remove:          false,
+func (ui *UI) selectedProfileName() string {
+	names := GetProfileNames(ui.Profs)
+	if ui.CurrentIdx >= 0 && ui.CurrentIdx < len(names) {
+		return names[ui.CurrentIdx]
 	}
-	if prof.ServiceName != "" {
-		conf.ServiceName = prof.ServiceName
+	return ""
+}
+
+func (ui *UI) selectProfile(name string) {
+	names := GetProfileNames(ui.Profs)
+	for i, item := range names {
+		if item == name {
+			ui.CurrentIdx = i
+			ui.Left.Select(i)
+			return
+		}
 	}
-	if prof.FunctionName != "" {
-		conf.FunctionName = prof.FunctionName
+}
+
+func nextNewProfileName(profs map[string]*Profile) string {
+	for idx := 1; ; idx++ {
+		candidate := fmt.Sprintf("new%d", idx)
+		if _, exists := profs[candidate]; !exists {
+			return candidate
+		}
 	}
-	if prof.TriggerName != "" {
-		conf.TriggerName = prof.TriggerName
+}
+
+func testRemoteConnections(remotes string) error {
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	for _, remote := range strings.Split(remotes, ",") {
+		remote = strings.TrimSpace(remote)
+		if remote == "" {
+			continue
+		}
+		conn, resp, err := dialer.Dial(remote, nil)
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		if err != nil {
+			return fmt.Errorf("上游连接失败 %s: %w", remote, err)
+		}
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "test finished"), time.Now().Add(time.Second))
+		_ = conn.Close()
 	}
-	if prof.Image != "" {
-		conf.Image = prof.Image
-	}
-	return conf
+	return nil
 }
 
 func (ui *UI) PromptDialog(title string, message string, cb func(bool)) {
@@ -383,18 +408,4 @@ func (ui *UI) PromptDialog(title string, message string, cb func(bool)) {
 		ui.Parent,
 	)
 	d.Show()
-}
-
-type clog struct {
-	Text *widget.Label
-	Bar  *widget.ProgressBar
-}
-
-func (l *clog) Write(p []byte) (int, error) {
-	l.Text.SetText(string(p))
-	newvalue := l.Bar.Value + 0.1
-	if newvalue <= 1.0 {
-		l.Bar.SetValue(newvalue)
-	}
-	return 0, nil
 }

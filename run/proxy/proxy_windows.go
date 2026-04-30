@@ -211,3 +211,7 @@ func Flush() error {
 	}
 	return nil
 }
+
+func Status() string {
+	return "Windows 系统代理由 WinINet 管理"
+}

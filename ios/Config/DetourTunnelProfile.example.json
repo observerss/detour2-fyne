@@ -1,0 +1,8 @@
+{
+  "remoteAddress": "ws://example.com:7777/ws",
+  "password": "change-me",
+  "dnsServers": ["1.1.1.1", "8.8.8.8"],
+  "mtu": 1500,
+  "localSocksPort": 7776,
+  "poolSize": 64
+}

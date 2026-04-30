@@ -19,3 +19,7 @@ func SetGlobalProxy(proxyServer string, bypasses ...string) error {
 func Off() error {
 	return errors.New("linux无法用本软件关闭全局代理")
 }
+
+func Status() string {
+	return "Linux 暂不支持全局代理"
+}
