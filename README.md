@@ -130,15 +130,21 @@ iOS 版本需要单独接入 Apple Network Extension Packet Tunnel；移动端�
 
 ### Windows
 
+推荐使用统一的跨平台打包脚本生成 Windows 发布产物：
+
 ```bash
-scoop install mingw
-mingw64
-go mod tidy
-./build.sh windows
-& 'C:\Program Files (x86)\NSIS\makensis.exe' setup.nsi
+scripts/package-cross.sh windows
 ```
 
-如果已经在仓库根目录生成了 `detour2-fyne.exe`，可以直接用本机脚本把它整理到 `dist/windows-amd64` 并刷新 zip：
+产物会输出到 `dist/windows-amd64/`，包括 `Detour2.exe` 和 `Detour2.zip`。这条路径会创建临时 workspace、vendor 依赖并使用 `fyne-cross windows -arch=amd64` 构建，是当前推荐的 Windows 打包方式。
+
+如果只是在 Windows 本机快速编译当前平台，可以运行：
+
+```bash
+./build.sh windows
+```
+
+本机快速编译通常会在仓库根目录生成 `detour2-fyne.exe`。需要把它整理成 `dist/windows-amd64/Detour2.exe` 和 zip 时，再运行：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\scripts\Package-WindowsLocal.ps1
@@ -162,6 +168,6 @@ PowerShell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-22.04\home\jingc
 
 如果 Smart App Control 仍然拦截 self-signed 测试签名，说明当前系统策略只接受有信誉的正式签名或 Microsoft Store 分发；这不是程序逻辑错误，需要走正式代码签名证书、SignPath 开源签名或 Store 分发。
 
-为了降低被启发式规则直接打高风险的概率，仓库里的 Windows 安装器现在默认做两件事：只安装到当前用户目录，不再申请管理员权限；安装完成后不自动拉起程序。Windows 开机自启也改成了写当前用户 `Run` 注册表，而不是通过 PowerShell + `WScript.Shell` 动态创建快捷方式。这些调整只能减少误报触发面，不能替代正式签名和发行信誉。
+Windows 开机自启写当前用户 `Run` 注册表，不再通过 PowerShell + `WScript.Shell` 动态创建快捷方式。这只能减少误报触发面，不能替代正式签名和发行信誉。
 
 更完整的 Windows 运行排查步骤见 [docs/windows-testing.md](docs/windows-testing.md)。
