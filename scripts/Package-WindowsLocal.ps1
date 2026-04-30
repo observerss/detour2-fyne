@@ -62,6 +62,7 @@ if (-not $NoZip) {
         $toolsDir = Join-Path $stageDir "tools"
         New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Sign-WindowsLocal.ps1") -Destination (Join-Path $toolsDir "Sign-WindowsLocal.ps1") -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Sign-WindowsLocal.cmd") -Destination (Join-Path $toolsDir "Sign-WindowsLocal.cmd") -Force
 
         Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -Force
         Unblock-File -LiteralPath $zipPath -ErrorAction SilentlyContinue

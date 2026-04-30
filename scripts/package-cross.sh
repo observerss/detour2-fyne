@@ -142,6 +142,7 @@ package_windows_readme_and_tools() {
     local zip_path="${dst_dist}/${app_name}.zip"
     local readme_source="${repo_root}/docs/README-WindowsPackage.md"
     local sign_script="${repo_root}/scripts/Sign-WindowsLocal.ps1"
+    local sign_cmd="${repo_root}/scripts/Sign-WindowsLocal.cmd"
     local stage_dir="${tmp_root}/windows-package-${target_dir}"
 
     if [[ ! -f "$exe_path" ]]; then
@@ -156,6 +157,9 @@ package_windows_readme_and_tools() {
     fi
     if [[ -f "$sign_script" ]]; then
         cp -f "$sign_script" "${stage_dir}/tools/Sign-WindowsLocal.ps1"
+    fi
+    if [[ -f "$sign_cmd" ]]; then
+        cp -f "$sign_cmd" "${stage_dir}/tools/Sign-WindowsLocal.cmd"
     fi
 
     rm -f "$zip_path"

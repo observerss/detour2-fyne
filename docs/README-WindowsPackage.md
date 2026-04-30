@@ -11,11 +11,19 @@
 
 ## 本机测试签名工具
 
-压缩包里的 `tools\Sign-WindowsLocal.ps1` 只适合开发者自己的测试机使用。
+压缩包里的 `tools\Sign-WindowsLocal.cmd` 可以双击运行，它会自动查找上一级目录的 `Detour2.exe` 并调用 `tools\Sign-WindowsLocal.ps1` 完成本机测试签名。
 
-它会在当前 Windows 用户下创建或复用一个 self-signed 代码签名证书，把证书导入当前用户的 `Root` 和 `TrustedPublisher` 证书库，然后给指定的 exe 签名。
+`tools\Sign-WindowsLocal.ps1` 是底层 PowerShell 脚本，也只适合开发者自己的测试机使用。
 
-示例：
+签名过程会在当前 Windows 用户下创建或复用一个 self-signed 代码签名证书，把证书导入当前用户的 `Root` 和 `TrustedPublisher` 证书库，然后给 `Detour2.exe` 签名。
+
+推荐方式：
+
+1. 先完整解压 zip。
+2. 双击运行 `tools\Sign-WindowsLocal.cmd`。
+3. 看到“已完成本机测试签名”后，再运行 `Detour2.exe`。
+
+如果需要手动执行 PowerShell 脚本，也可以运行：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\tools\Sign-WindowsLocal.ps1 -ExePath .\Detour2.exe
