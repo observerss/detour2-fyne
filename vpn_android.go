@@ -19,3 +19,18 @@ func Java_github_com_observerss_detour2fyne_DetourVpnService_startTunForwarder(e
 func Java_github_com_observerss_detour2fyne_DetourVpnService_stopTunForwarder(env *C.JNIEnv, clazz C.jclass) {
 	proxy.StopTunForwarder()
 }
+
+//export Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnStarted
+func Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnStarted(env *C.JNIEnv, clazz C.jclass) {
+	proxy.NotifyVPNStarted()
+}
+
+//export Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnStopped
+func Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnStopped(env *C.JNIEnv, clazz C.jclass) {
+	proxy.NotifyVPNStopped()
+}
+
+//export Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnRevoked
+func Java_github_com_observerss_detour2fyne_DetourVpnService_notifyVpnRevoked(env *C.JNIEnv, clazz C.jclass) {
+	proxy.NotifyVPNRevoked()
+}

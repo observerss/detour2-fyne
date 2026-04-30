@@ -68,6 +68,9 @@ type UI struct {
 	Socks5Server   *local.Local
 	HTTPServer     *local.Local
 	CanvasObject   fyne.CanvasObject
+	monitorOnce    sync.Once
+	recoveringVPN  bool
+	vpnRecoverLock sync.Mutex
 }
 
 func NewUI(parent fyne.Window) *UI {
@@ -92,6 +95,7 @@ func NewUI(parent fyne.Window) *UI {
 func (ui *UI) MakeUI() fyne.CanvasObject {
 	ui.SetupBindings()
 	ui.ResetUI()
+	ui.startAndroidVPNMonitor()
 	if mobileLayout() {
 		ui.ProxyStatus.Wrapping = fyne.TextWrapWord
 		fields := container.NewVBox(
@@ -399,6 +403,7 @@ func (ui *UI) StartRunning() {
 	ui.SaveRun()
 	ui.Started = true
 	ui.ToggleRun.SetText(TextStopFC)
+	ui.startAndroidVPNMonitor()
 }
 
 func (ui *UI) StopRunning() {
@@ -412,6 +417,8 @@ func (ui *UI) StopRunning() {
 		}
 	}()
 
+	ui.Started = false
+	ui.recoveringVPN = false
 	ui.stopLocalServers()
 	if ui.UseGlobalProxy.Checked && supportsGlobalProxy() {
 		if err := proxy.Off(); err != nil {
@@ -422,7 +429,6 @@ func (ui *UI) StopRunning() {
 
 	ui.ToggleRun.Enable()
 	ui.setEnableSwitchChecked(false)
-	ui.Started = false
 	ui.ToggleRun.SetText(TextStartFC)
 }
 
@@ -630,6 +636,91 @@ func (ui *UI) refreshAndroidProxyToggle() {
 			ui.UpdateProxyStatus()
 		})
 	}()
+}
+
+func (ui *UI) startAndroidVPNMonitor() {
+	if runtime.GOOS != "android" {
+		return
+	}
+	ui.monitorOnce.Do(func() {
+		go ui.monitorAndroidVPN()
+	})
+}
+
+func (ui *UI) monitorAndroidVPN() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !ui.Started || !ui.UseGlobalProxy.Checked {
+			continue
+		}
+		status := proxy.Status()
+		if androidVPNStatusNeedsRecovery(status) {
+			ui.recoverAndroidVPN(status)
+			continue
+		}
+		fyne.Do(func() {
+			ui.UpdateProxyStatus()
+		})
+	}
+}
+
+func androidVPNStatusNeedsRecovery(status string) bool {
+	return strings.Contains(status, "已停止") ||
+		strings.Contains(status, "已被系统断开") ||
+		strings.Contains(status, "启动失败") ||
+		strings.Contains(status, "未启用")
+}
+
+func (ui *UI) recoverAndroidVPN(status string) {
+	ui.vpnRecoverLock.Lock()
+	if ui.recoveringVPN {
+		ui.vpnRecoverLock.Unlock()
+		return
+	}
+	ui.recoveringVPN = true
+	ui.vpnRecoverLock.Unlock()
+
+	defer func() {
+		ui.vpnRecoverLock.Lock()
+		ui.recoveringVPN = false
+		ui.vpnRecoverLock.Unlock()
+	}()
+
+	logger.Error.Println("Android VPN 状态异常，尝试自动恢复: " + status)
+	socks5Port, httpPort, err := ui.proxyPorts()
+	if err != nil {
+		logger.Error.Println(err.Error())
+		ui.syncAndroidVPNStopped(err.Error())
+		return
+	}
+	if err := waitForTCPListener(net.JoinHostPort("127.0.0.1", socks5Port), 2*time.Second); err != nil {
+		logger.Error.Println(err.Error())
+		ui.syncAndroidVPNStopped(err.Error())
+		return
+	}
+	if err := ui.startGlobalProxy(socks5Port, httpPort); err != nil {
+		logger.Error.Println(err.Error())
+		ui.syncAndroidVPNStopped(err.Error())
+		return
+	}
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		fyne.Do(func() {
+			ui.UpdateProxyStatus()
+			ui.setEnableSwitchChecked(true)
+			ui.ToggleRun.SetText(TextStopFC)
+		})
+	}()
+}
+
+func (ui *UI) syncAndroidVPNStopped(reason string) {
+	fyne.Do(func() {
+		ui.Started = false
+		ui.setEnableSwitchChecked(false)
+		ui.ToggleRun.SetText(TextStartFC)
+		ui.ProxyStatus.SetText("Android VPN 已断开: " + reason)
+	})
 }
 
 func supportsGlobalProxy() bool {

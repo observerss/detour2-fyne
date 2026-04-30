@@ -210,7 +210,6 @@ import "C"
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"unsafe"
 
@@ -220,6 +219,11 @@ import (
 var (
 	statusMu sync.Mutex
 	status   = "Android VPN 未启用"
+)
+
+const (
+	androidVPNStatusStopped = "Android VPN 已停止"
+	androidVPNStatusRevoked = "Android VPN 已被系统断开，正在尝试恢复"
 )
 
 // SetGlobalProxy 设置全局代理
@@ -250,7 +254,7 @@ func Off() error {
 		setStatus("Android VPN 停止失败: " + err.Error())
 		return err
 	}
-	setStatus("Android VPN 已停止")
+	setStatus(androidVPNStatusStopped)
 	return nil
 }
 
@@ -258,6 +262,18 @@ func Status() string {
 	statusMu.Lock()
 	defer statusMu.Unlock()
 	return status
+}
+
+func NotifyVPNStarted() {
+	setStatus("Android VPN 已连接")
+}
+
+func NotifyVPNStopped() {
+	setStatus(androidVPNStatusStopped)
+}
+
+func NotifyVPNRevoked() {
+	setStatus(androidVPNStatusRevoked)
 }
 
 func setStatus(value string) {
