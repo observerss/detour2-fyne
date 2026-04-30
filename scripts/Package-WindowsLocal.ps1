@@ -49,8 +49,19 @@ if (-not $NoZip) {
     New-Item -ItemType Directory -Path $stageDir | Out-Null
 
     try {
-        Copy-Item -LiteralPath $targetExe -Destination (Join-Path $stageDir ([System.IO.Path]::GetFileName($targetExe))) -Force
-        Compress-Archive -LiteralPath (Join-Path $stageDir ([System.IO.Path]::GetFileName($targetExe))) -DestinationPath $zipPath -Force
+        $stageExe = Join-Path $stageDir ([System.IO.Path]::GetFileName($targetExe))
+        Copy-Item -LiteralPath $targetExe -Destination $stageExe -Force
+
+        $readmeSource = Join-Path $repoRoot "docs\README-WindowsPackage.md"
+        if (Test-Path -LiteralPath $readmeSource) {
+            Copy-Item -LiteralPath $readmeSource -Destination (Join-Path $stageDir "README-Windows.md") -Force
+        }
+
+        $toolsDir = Join-Path $stageDir "tools"
+        New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Sign-WindowsLocal.ps1") -Destination (Join-Path $toolsDir "Sign-WindowsLocal.ps1") -Force
+
+        Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -Force
         Unblock-File -LiteralPath $zipPath -ErrorAction SilentlyContinue
         Write-Host "Packed: $zipPath"
     } finally {

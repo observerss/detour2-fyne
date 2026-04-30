@@ -146,6 +146,8 @@ scripts\package-cross.cmd windows
 
 产物会输出到 `dist/windows-amd64/`，包括 `Detour2.exe` 和 `Detour2.zip`。这条路径会创建临时 workspace、vendor 依赖并使用 `fyne-cross windows -arch=amd64` 构建，是当前推荐的 Windows 打包方式。
 
+Windows zip 会附带 `README-Windows.md` 和 `tools\Sign-WindowsLocal.ps1`。这个签名脚本只用于本机开发/测试，它会把 self-signed 证书导入当前用户证书库；不要要求普通用户执行它，也不要把 self-signed 签名当正式发行签名。
+
 如果只是在 Windows 本机快速编译当前平台，可以运行：
 
 ```bash

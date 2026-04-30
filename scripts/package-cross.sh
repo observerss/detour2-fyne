@@ -131,6 +131,55 @@ inject_android_vpn_service() {
     fi
 }
 
+package_windows_readme_and_tools() {
+    local target_dir="$1"
+    if [[ "$target_dir" != windows-* ]]; then
+        return 0
+    fi
+
+    local dst_dist="${repo_root}/dist/${target_dir}"
+    local exe_path="${dst_dist}/${app_name}.exe"
+    local zip_path="${dst_dist}/${app_name}.zip"
+    local readme_source="${repo_root}/docs/README-WindowsPackage.md"
+    local sign_script="${repo_root}/scripts/Sign-WindowsLocal.ps1"
+    local stage_dir="${tmp_root}/windows-package-${target_dir}"
+
+    if [[ ! -f "$exe_path" ]]; then
+        return 0
+    fi
+
+    rm -rf "$stage_dir"
+    mkdir -p "${stage_dir}/tools"
+    cp -f "$exe_path" "${stage_dir}/${app_name}.exe"
+    if [[ -f "$readme_source" ]]; then
+        cp -f "$readme_source" "${stage_dir}/README-Windows.md"
+    fi
+    if [[ -f "$sign_script" ]]; then
+        cp -f "$sign_script" "${stage_dir}/tools/Sign-WindowsLocal.ps1"
+    fi
+
+    rm -f "$zip_path"
+    if command -v powershell.exe >/dev/null 2>&1; then
+        local stage_win
+        local zip_win
+        if command -v cygpath >/dev/null 2>&1; then
+            stage_win="$(cygpath -w "$stage_dir")"
+            zip_win="$(cygpath -w "$zip_path")"
+        else
+            stage_win="$stage_dir"
+            zip_win="$zip_path"
+        fi
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path (Join-Path '${stage_win}' '*') -DestinationPath '${zip_win}' -Force; Unblock-File -LiteralPath '${zip_win}' -ErrorAction SilentlyContinue"
+    elif command -v zip >/dev/null 2>&1; then
+        (cd "$stage_dir" && zip -qr "$zip_path" .)
+    else
+        echo "zip tool not found; leaving ${app_name}.exe without portable zip" >&2
+        return 0
+    fi
+
+    echo "[✓] packaged Windows portable zip with README and local test signing tool"
+}
+
 copy_dist() {
     local target_dir="$1"
     local src_dist="${tmp_app}/fyne-cross/dist/${target_dir}"
@@ -146,6 +195,7 @@ copy_dist() {
     cp -f "$src_dist"/* "$dst_dist"/
 
     inject_android_vpn_service "$target_dir"
+    package_windows_readme_and_tools "$target_dir"
 
     echo "[✓] copied ${target_dir} artifacts"
     find "$dst_dist" -maxdepth 1 -type f -printf '%p %s bytes\n' | sort
