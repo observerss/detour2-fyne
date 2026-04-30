@@ -30,13 +30,15 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 
 $sourceFullPath = (Resolve-Path -LiteralPath $SourceExe).Path
-New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-
 $targetExe = Join-Path $OutputDir ("{0}.exe" -f $AppName)
-Copy-Item -LiteralPath $sourceFullPath -Destination $targetExe -Force
-Unblock-File -LiteralPath $targetExe -ErrorAction SilentlyContinue
+if ([string]::Equals($sourceFullPath, [System.IO.Path]::GetFullPath($targetExe), [System.StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "Using existing target exe: $targetExe"
+} else {
+    Copy-Item -LiteralPath $sourceFullPath -Destination $targetExe -Force
+    Unblock-File -LiteralPath $targetExe -ErrorAction SilentlyContinue
+    Write-Host "Copied: $sourceFullPath -> $targetExe"
+}
 
-Write-Host "Copied: $sourceFullPath -> $targetExe"
 Get-Item -LiteralPath $targetExe | Select-Object FullName, Length, LastWriteTime
 
 if (-not $NoZip) {

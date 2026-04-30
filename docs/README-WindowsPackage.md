@@ -1,33 +1,34 @@
-# Detour2 Windows Portable Package
+# Detour2 Windows 便携版说明
 
-This package is a portable Windows build. Unzip it to a local folder, then run `Detour2.exe`.
+这是 Detour2 的 Windows 便携版。请先把 zip 解压到本机目录，再运行 `Detour2.exe`。
 
-## Recommended use
+## 推荐用法
 
-- Extract the zip before running the app.
-- Do not run the app directly from `\\wsl.localhost\...`, a network share, or inside the zip archive.
-- For normal public distribution, use a real Authenticode code-signing certificate from a trusted CA and timestamp the signature.
+- 先完整解压 zip，再运行程序。
+- 不要直接在 zip 压缩包内运行程序。
+- 不要从 `\\wsl.localhost\...`、网络共享目录或其它不可信来源路径直接启动程序。
+- 如果要正式公开发布，应该使用可信 CA 签发的 Authenticode 代码签名证书，并给签名加 timestamp。
 
-## Local test signing tool
+## 本机测试签名工具
 
-The `tools\Sign-WindowsLocal.ps1` script is included only for local developer/testing machines.
+压缩包里的 `tools\Sign-WindowsLocal.ps1` 只适合开发者自己的测试机使用。
 
-It creates or reuses a self-signed code-signing certificate under the current Windows user, imports that certificate into the current user's `Root` and `TrustedPublisher` stores, and signs the selected executable.
+它会在当前 Windows 用户下创建或复用一个 self-signed 代码签名证书，把证书导入当前用户的 `Root` 和 `TrustedPublisher` 证书库，然后给指定的 exe 签名。
 
-Example:
+示例：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\tools\Sign-WindowsLocal.ps1 -ExePath .\Detour2.exe
 ```
 
-Optional re-zip after signing:
+签名后重新打 zip：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\tools\Sign-WindowsLocal.ps1 -ExePath .\Detour2.exe -Rezip -ZipPath .\Detour2-local-signed.zip
 ```
 
-## Important warning
+## 重要提醒
 
-Do not ask ordinary users to run the local test signing tool. A self-signed certificate does not establish public trust and should not be treated as a release signature.
+不要要求普通用户运行这个本机测试签名脚本。self-signed 证书不能建立公开信任，也不能当作正式发行签名。
 
-If Windows SmartScreen or Smart App Control blocks this build, use a properly signed release, Microsoft Store distribution, or another trusted release channel.
+如果 Windows SmartScreen 或 Smart App Control 拦截当前构建，应该改用正式代码签名、Microsoft Store 分发，或其它可信发布渠道。
