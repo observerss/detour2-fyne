@@ -34,7 +34,7 @@ curl.exe --proxy socks5h://127.0.0.1:7776 https://api.ipify.org
 curl.exe --proxy http://127.0.0.1:7777 https://api.ipify.org
 ```
 
-The built-in upstream profiles are `hk`, `jp`, and `sig`; `hk` is selected by default. Configure your own upstream address and password in the app before testing.
+Configure your own upstream address and password in the app before testing. Fresh installs start with an empty profile list.
 
 ## Common Failure Modes
 

@@ -7,43 +7,26 @@ import (
 )
 
 const (
-	DefaultProfileName   = "hk"
-	DefaultRemoteAddress = DefaultHKRemoteAddress
-	DefaultPassword      = "jy230101"
-
-	DefaultJPRemoteAddress  = "tcp://47.116.180.26:7777"
-	DefaultSIGRemoteAddress = "tcp://47.116.180.26:17779"
-	DefaultHKRemoteAddress  = "tcp://47.116.180.26:17780"
+	DefaultProfileName = ""
+	DefaultPassword    = ""
 )
 
-var defaultProfileNames = []string{"hk", "jp", "sig"}
+var defaultProfileNames = []string{}
 
 func NewDefaultProfile() *Profile {
 	return NewDefaultProfileByName(DefaultProfileName)
 }
 
 func NewDefaultProfileByName(name string) *Profile {
-	if name == "" {
-		name = DefaultProfileName
-	}
 	return &Profile{
-		Name:          name,
-		RemoteAddress: defaultRemoteAddressForName(name),
+		Name:          NormalizeProfileName(name),
+		RemoteAddress: "",
 		Password:      DefaultPassword,
 	}
 }
 
 func defaultRemoteAddressForName(name string) string {
-	switch name {
-	case "jp":
-		return DefaultJPRemoteAddress
-	case "sig":
-		return DefaultSIGRemoteAddress
-	case "hk":
-		return DefaultHKRemoteAddress
-	default:
-		return DefaultRemoteAddress
-	}
+	return ""
 }
 
 func DefaultProfileNames() []string {
@@ -64,48 +47,40 @@ func NormalizeProfiles(profs map[string]*Profile) map[string]*Profile {
 	if len(profs) == 0 {
 		return DefaultProfiles()
 	}
-	if oldDefault, ok := profs["default"]; ok {
-		if _, hasHK := profs[DefaultProfileName]; !hasHK && oldDefault != nil {
-			migrated := *oldDefault
-			migrated.Name = DefaultProfileName
-			profs[DefaultProfileName] = &migrated
-		}
-		delete(profs, "default")
-	}
 	for name, prof := range profs {
 		if prof == nil {
 			delete(profs, name)
 			continue
 		}
-		if prof.Name == "" || prof.Name == "default" {
-			prof.Name = name
+		normalizedName := NormalizeProfileName(firstNonEmpty(prof.Name, name))
+		if normalizedName == "" {
+			delete(profs, name)
+			continue
 		}
-		if prof.Name == "default" {
-			prof.Name = DefaultProfileName
+		prof.Name = normalizedName
+		if name != normalizedName {
+			delete(profs, name)
+			profs[normalizedName] = prof
 		}
-		if prof.RemoteAddress == "" {
-			prof.RemoteAddress = defaultRemoteAddressForName(prof.Name)
-		}
-		if prof.Password == "" {
-			prof.Password = DefaultPassword
-		}
-	}
-	for _, name := range DefaultProfileNames() {
-		if _, ok := profs[name]; !ok {
-			profs[name] = NewDefaultProfileByName(name)
-		}
-	}
-	if len(profs) == 0 {
-		return DefaultProfiles()
 	}
 	return profs
 }
 
 func NormalizeProfileName(name string) string {
-	if name == "" || name == "default" {
+	name = strings.TrimSpace(name)
+	if strings.EqualFold(name, "default") {
 		return DefaultProfileName
 	}
 	return name
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func NormalizeRemoteAddress(value string) (string, error) {

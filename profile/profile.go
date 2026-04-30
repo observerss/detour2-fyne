@@ -51,11 +51,6 @@ func SaveProfiles(profs map[string]*Profile) error {
 		var newprof = *prof
 		tosave[newprof.Name] = &newprof
 	}
-	if len(tosave) == 0 {
-		for _, name := range DefaultProfileNames() {
-			tosave[name] = NewDefaultProfileByName(name)
-		}
-	}
 	data, err := json.MarshalIndent(tosave, "", "  ")
 	if err != nil {
 		return err

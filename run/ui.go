@@ -175,17 +175,19 @@ func mobileField(label string, object fyne.CanvasObject) fyne.CanvasObject {
 func (ui *UI) ResetUI() {
 	ui.ProfileSelect.PlaceHolder = TextFCPlaceholder
 	profs, err := profile.LoadProfiles()
-	if err != nil || len(profs) == 0 {
-		profs = profile.DefaultProfiles()
+	if err != nil {
+		profs = profile.EmptyProfile
 	}
 	names := profile.GetProfileNames(profs)
 	ui.ProfileSelect.Options = names
 	if len(names) > 0 {
-		selected := profile.DefaultProfileName
+		selected := profile.NormalizeProfileName(ui.ProfileSelect.Selected)
 		if _, ok := profs[selected]; !ok {
 			selected = names[0]
 		}
 		ui.ProfileSelect.SetSelected(selected)
+	} else {
+		ui.ProfileSelect.ClearSelected()
 	}
 	ui.Socks5Port.SetPlaceHolder(DefaultSocks5Port)
 	ui.Socks5Port.SetText(DefaultSocks5Port)
@@ -779,12 +781,7 @@ func mobileLayout() bool {
 }
 
 func supportsStartup() bool {
-	switch runtime.GOOS {
-	case "android", "ios":
-		return false
-	default:
-		return true
-	}
+	return runtime.GOOS == "windows"
 }
 
 type clog struct {

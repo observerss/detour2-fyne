@@ -5,6 +5,7 @@
 package startup
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -22,6 +23,10 @@ func Enable() error {
 	if err != nil {
 		return err
 	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return err
+	}
 
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
@@ -29,7 +34,7 @@ func Enable() error {
 	}
 	defer key.Close()
 
-	if err := key.SetStringValue(runValueName, `"`+path+`"`); err != nil {
+	if err := key.SetStringValue(runValueName, fmt.Sprintf("%q", path)); err != nil {
 		return err
 	}
 

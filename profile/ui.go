@@ -121,7 +121,11 @@ func profileMobileListHeight() float32 {
 
 func GetProfileNames(profs map[string]*Profile) []string {
 	names := make([]string, 0, len(profs))
-	for name := range profs {
+	for name, prof := range profs {
+		name = NormalizeProfileName(name)
+		if name == "" || prof == nil {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -148,7 +152,7 @@ func (ui *UI) ResetLeft() {
 	profs, err := LoadProfiles()
 	if err != nil {
 		logger.Error.Println(err.Error())
-		profs = defaultProfiles()
+		profs = EmptyProfile
 	}
 
 	ui.Profs = profs
@@ -186,8 +190,8 @@ func indexOfProfileName(names []string, name string) int {
 func (ui *UI) ResetForm() {
 	prof := NewDefaultProfile()
 	ui.SetForm(prof)
-	ui.RemoteAddress.SetPlaceHolder(DefaultRemoteAddress)
-	ui.Password.SetPlaceHolder(DefaultPassword)
+	ui.RemoteAddress.SetPlaceHolder("tcp://host:port")
+	ui.Password.SetPlaceHolder("请输入密码")
 	ui.TestStatus.SetText("请选择或新建一个配置")
 }
 
@@ -285,7 +289,10 @@ func (ui *UI) HandleSave() {
 		return
 	}
 
-	profs, _ := LoadProfiles()
+	profs, err := LoadProfiles()
+	if err != nil || profs == nil {
+		profs = make(map[string]*Profile)
+	}
 	if existing, ok := profs[prof.Name]; ok && (ui.OriginalName == "" || ui.OriginalName != prof.Name) && existing != nil {
 		ui.PromptDialog("保存失败", fmt.Sprintf("配置名已存在: %s", prof.Name), func(bool) {})
 		return
