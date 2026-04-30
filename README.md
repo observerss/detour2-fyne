@@ -130,11 +130,19 @@ iOS 版本需要单独接入 Apple Network Extension Packet Tunnel；移动端�
 
 ### Windows
 
-推荐使用统一的跨平台打包脚本生成 Windows 发布产物：
+推荐使用统一的跨平台打包脚本生成 Windows 发布产物。Windows 本机不需要 WSL，直接通过 PowerShell 包装脚本调用 Git Bash：
 
-```bash
-scripts/package-cross.sh windows
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\package-cross.ps1 windows
 ```
+
+也可以用 CMD 入口：
+
+```cmd
+scripts\package-cross.cmd windows
+```
+
+这两个入口最终都会调用 `scripts/package-cross.sh windows`。如果 Git Bash 不在默认安装路径，可以先设置 `GIT_BASH` 指向 `bash.exe`。
 
 产物会输出到 `dist/windows-amd64/`，包括 `Detour2.exe` 和 `Detour2.zip`。这条路径会创建临时 workspace、vendor 依赖并使用 `fyne-cross windows -arch=amd64` 构建，是当前推荐的 Windows 打包方式。
 
