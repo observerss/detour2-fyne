@@ -5,7 +5,6 @@
 package startup
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -34,11 +33,17 @@ func Enable() error {
 	}
 	defer key.Close()
 
-	if err := key.SetStringValue(runValueName, fmt.Sprintf("%q", path)); err != nil {
+	if err := key.SetStringValue(runValueName, runCommand(path)); err != nil {
 		return err
 	}
 
 	return removeLegacyStartupShortcut()
+}
+
+// runCommand quotes path for the Run key. Not %q: Go escaping would double
+// every backslash, which is not how Windows command lines are quoted.
+func runCommand(path string) string {
+	return `"` + path + `"`
 }
 
 // Disable 开机不自启动
