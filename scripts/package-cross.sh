@@ -35,6 +35,8 @@ Environment:
   MACOSX_SDK_PATH         Required for darwin builds on Linux, for example /path/to/MacOSX.sdk
   DETOUR2_DEFAULT_PROFILES / DETOUR2_DEFAULT_PROFILE / DETOUR2_DEFAULT_PASSWORD
                           Built-in lines baked into the app; override build.env (see build.env.example)
+  ANDROID_TOOLS_ROOT      Holds keystores/ for APK signing. Default: /mnt/d/AndroidTools
+  DETOUR2_ANDROID_SDK     Linux SDK with build-tools 35 for native APK injection. Default: ~/.cache/detour2-android/sdk
 EOF
 }
 
@@ -78,6 +80,71 @@ prepare_workspace() {
     (cd "$tmp_app" && go mod vendor)
 }
 
+# Linux build-tools >= 35 (zipalign -P 16 for 16 KB pages); the fyne-cross
+# image only ships 33. Pinned to Google's published checksum.
+android_build_tools_url="https://dl.google.com/android/repository/build-tools_r35_linux.zip"
+android_build_tools_sha1="2cfaa0bbb2336e9ec18ed3ecea84fa2e2af607bc"
+
+ensure_android_linux_sdk() {
+    local sdk="$1"
+    local bt="${sdk}/build-tools/35.0.0"
+    if [[ -x "${bt}/zipalign" ]]; then
+        return 0
+    fi
+    local zip="${sdk}/build-tools_r35_linux.zip"
+    mkdir -p "${sdk}/build-tools"
+    echo "[i] Downloading Android build-tools 35 (Linux)..."
+    curl -fL --retry 2 --connect-timeout 20 -o "$zip" "$android_build_tools_url" || return 1
+    if [[ "$(sha1sum "$zip" | cut -d' ' -f1)" != "$android_build_tools_sha1" ]]; then
+        echo "build-tools checksum mismatch: $zip" >&2
+        rm -f "$zip"
+        return 1
+    fi
+    rm -rf "${sdk}/build-tools/android-15" "$bt"
+    unzip -q "$zip" -d "${sdk}/build-tools" && mv "${sdk}/build-tools/android-15" "$bt"
+    rm -f "$zip"
+}
+
+# inject_android_vpn_service_native runs the sh script embedded in
+# Inject-AndroidVpnService.ps1 (between "$script = @'" and "'@") in the
+# fyne-cross android image, with Linux build-tools from DETOUR2_ANDROID_SDK.
+# The signing keystore stays in ANDROID_TOOLS_ROOT/keystores, shared with the
+# Windows injectors.
+inject_android_vpn_service_native() {
+    local inject_script="$1"
+    local apk_path="$2"
+    local tools_root="${ANDROID_TOOLS_ROOT:-/mnt/d/AndroidTools}"
+    local linux_sdk="${DETOUR2_ANDROID_SDK:-${HOME}/.cache/detour2-android/sdk}"
+    local image="${DETOUR2_ANDROID_IMAGE:-${registry}/fyneio/fyne-cross-images:android}"
+    local build_dir="${repo_root}/.android-vpn-build"
+
+    ensure_android_linux_sdk "$linux_sdk" || return 1
+    mkdir -p "$build_dir" "${tools_root}/keystores" "${linux_sdk}/platforms"
+    # android.jar is platform independent; reuse the one in ANDROID_TOOLS_ROOT
+    local platforms=()
+    if [[ -d "${tools_root}/sdk/platforms" ]]; then
+        platforms=(-v "${tools_root}/sdk/platforms:/android-tools/sdk/platforms:ro")
+    fi
+    sed -n "/^\$script = @'\$/,/^'@\$/p" "$inject_script" | sed '1d;$d' | tr -d '\r' \
+        | sed "s#__APK_PATH__#/workspace/${apk_path}#" > "${build_dir}/inject.sh"
+    if [[ ! -s "${build_dir}/inject.sh" ]]; then
+        echo "could not extract injector script from $inject_script" >&2
+        return 1
+    fi
+    docker run --rm \
+        -u "$(id -u):$(id -g)" -e HOME=/tmp \
+        -v "${repo_root}:/workspace" \
+        -v "${linux_sdk}:/android-tools/sdk:ro" \
+        "${platforms[@]}" \
+        -v "${tools_root}/keystores:/android-tools/keystores" \
+        -w /workspace \
+        "$image" \
+        sh /workspace/.android-vpn-build/inject.sh
+    local status=$?
+    rm -rf "$build_dir"
+    return $status
+}
+
 inject_android_vpn_service() {
     local target_dir="$1"
     if [[ "$target_dir" != android-* ]]; then
@@ -109,6 +176,14 @@ inject_android_vpn_service() {
     }
 
     echo "[i] Injecting Android VPN Service DEX..."
+    if [[ "$(uname -s)" == "Linux" ]] && command -v docker >/dev/null 2>&1 && [[ -f "$inject_script" ]]; then
+        # Linux/WSL: the PowerShell wrappers cannot handle \\wsl.localhost paths,
+        # so run the same embedded sh script directly with the Linux docker CLI
+        if inject_android_vpn_service_native "$inject_script" "$apk_path"; then
+            return 0
+        fi
+        echo "[!] Native Android VPN injection failed; trying PowerShell injectors..." >&2
+    fi
     if [[ -f "$inject_script" ]]; then
         if run_powershell_script "$inject_script"; then
             injected=1

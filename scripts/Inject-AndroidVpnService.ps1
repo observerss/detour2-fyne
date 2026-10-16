@@ -27,7 +27,8 @@ set -eu
 
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/android_sdk}}"
 API="${DETOUR2_ANDROID_API:-34}"
-BT="$(find "$SDK/build-tools" "/android-tools/sdk/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+# newest build-tools by version (dir name), not by full path
+BT="$(find "$SDK/build-tools" "/android-tools/sdk/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | awk -F/ '{print $NF "\t" $0}' | sort -V | tail -1 | cut -f2)"
 ANDROID_JAR="$(find "/android-tools/sdk/platforms/android-${API}" "$SDK/platforms/android-${API}" -name android.jar 2>/dev/null | head -1)"
 if [ -z "$ANDROID_JAR" ]; then
   ANDROID_JAR="$(find "/android-tools/sdk/platforms" "$SDK/platforms" -name android.jar 2>/dev/null | sort -V | tail -1)"
