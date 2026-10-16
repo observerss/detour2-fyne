@@ -4,7 +4,7 @@
 
 ## Usage
 
-首次启动不会内置任何上游线路，也不会预填密码；请在“配置”页新建自己的上游配置。
+内置线路在构建时从 `build.env` 注入（见下文 Build），源码里不含任何线路地址或密码。首次启动（还没有 `profiles.json`）时会载入这些内置线路并选中默认线路；之后的增删改都以用户自己的配置为准，删除的内置线路不会再被加回来。没有注入内置线路的构建，首次启动时配置列表为空，请在“配置”页新建上游配置。
 
 默认运行参数：
 
@@ -26,9 +26,19 @@ detour2 server -l tcp://0.0.0.0:7777 -p <your-password>
 detour2 relay -l tcp://0.0.0.0:7777 -r ws://next-relay:7777/ws -p <your-password>
 ```
 
-客户端现在直接依赖 `github.com/observerss/detour2 v0.4.1`。
+客户端直接依赖 `github.com/observerss/detour2 v0.4.4`。
+
+“启用全局代理”支持 Windows、macOS（系统代理）和 Android/iOS（VPN）。桌面端只在本地代理运行期间把系统代理指向本程序，停止或退出时恢复为开启前的设置。Windows 上即使程序被强杀或崩溃，也会由独立的看门狗进程立即恢复；关机或断电则由 `RunOnce` 在下次登录时恢复，每次启动也会检查遗留状态（恢复信息保存在配置目录的 `proxy-state.json`）。
 
 ## Build
+
+内置线路不写在代码里，构建时注入：
+
+```bash
+cp build.env.example build.env   # 填入 DETOUR2_DEFAULT_PROFILES / DETOUR2_DEFAULT_PROFILE / DETOUR2_DEFAULT_PASSWORD
+```
+
+`build.env` 和由它生成的 `profile/defaults_gen.go` 都在 `.gitignore` 里，**不要提交**。`build.sh` 和 `scripts/package-cross.sh` 会先执行 `go generate` 生成该文件；同名环境变量优先于 `build.env`（适合 CI）。没有配置时构建照样成功，只是产物不带内置线路。注意：注入的地址和密码会编进二进制，分发出去的安装包里可以被提取出来。
 
 先安装 Fyne CLI：
 

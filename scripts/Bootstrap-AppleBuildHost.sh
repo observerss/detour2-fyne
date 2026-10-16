@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
-socks_proxy="${DETOUR2_MAC_SOCKS_PROXY:-172.20.208.30:7778}"
+socks_proxy="${DETOUR2_MAC_SOCKS_PROXY:-}"  # optional host:port fallback for downloads
 go_version="${DETOUR2_GO_VERSION:-}"
 skip_fyne_build="${DETOUR2_SKIP_FYNE_BUILD:-0}"
 skip_gomobile_bind="${DETOUR2_SKIP_GOMOBILE_BIND:-0}"
@@ -60,6 +60,7 @@ fetch() {
     if curl -fL --retry 2 --connect-timeout 20 -o "$output" "$url"; then
         return 0
     fi
+    [[ -n "$socks_proxy" ]] || return 1
     warn "direct download failed, retrying through SOCKS proxy ${socks_proxy}: ${url}"
     curl --socks5 "$socks_proxy" -fL --retry 2 --connect-timeout 20 -o "$output" "$url"
 }
@@ -69,6 +70,7 @@ fetch_text() {
     if curl -fsSL --connect-timeout 20 "$url"; then
         return 0
     fi
+    [[ -n "$socks_proxy" ]] || return 1
     warn "direct request failed, retrying through SOCKS proxy ${socks_proxy}: ${url}"
     curl --socks5 "$socks_proxy" -fsSL --connect-timeout 20 "$url"
 }

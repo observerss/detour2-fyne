@@ -25,3 +25,8 @@ dist/
 .android-vpn-build/
 test_output.txt
 .tmp/
+
+# build-time built-in lines (credentials) and the file generated from them
+build.env
+profile/defaults_gen.go
+fyne-cross/

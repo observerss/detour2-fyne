@@ -65,7 +65,7 @@ If Xcode is missing or not selected, typical failures are `-os=ios requires XCod
 For a fresh remote Mac, the bootstrap helper installs Go in the user directory, installs `fyne` and `gomobile`, initializes gomobile, runs Go checks, and then invokes the iOS Packet Tunnel preparation flow:
 
 ```bash
-DETOUR2_MAC_SOCKS_PROXY=172.20.208.30:7778 \
+DETOUR2_MAC_SOCKS_PROXY=<socks-host>:<port> \
 bash scripts/Bootstrap-AppleBuildHost.sh
 ```
 
@@ -73,9 +73,11 @@ If RubyGems is slow or blocked, skip the optional Xcode project patching gem and
 
 ```bash
 DETOUR2_SKIP_XCODEPROJ_GEM=1 \
-DETOUR2_MAC_SOCKS_PROXY=172.20.208.30:7778 \
+DETOUR2_MAC_SOCKS_PROXY=<socks-host>:<port> \
 bash scripts/Bootstrap-AppleBuildHost.sh
 ```
+
+`DETOUR2_MAC_SOCKS_PROXY` is optional: when set, downloads that fail directly are retried through that SOCKS5 proxy.
 
 `DETOUR2_XCODEPROJ_GEM_TIMEOUT` controls how long the helper waits for `gem install xcodeproj`; `0` disables the timeout.
 

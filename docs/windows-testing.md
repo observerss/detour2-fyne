@@ -34,7 +34,7 @@ curl.exe --proxy socks5h://127.0.0.1:7776 https://api.ipify.org
 curl.exe --proxy http://127.0.0.1:7777 https://api.ipify.org
 ```
 
-Configure your own upstream address and password in the app before testing. Fresh installs start with an empty profile list.
+Builds made with a `build.env` (see the README) start with the built-in lines and select the default one; builds without it start with an empty profile list, so configure your own upstream address and password first.
 
 ## Common Failure Modes
 

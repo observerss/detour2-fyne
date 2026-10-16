@@ -152,7 +152,6 @@ func (ui *UI) ResetLeft() {
 	profs, err := LoadProfiles()
 	if err != nil {
 		logger.Error.Println(err.Error())
-		profs = EmptyProfile
 	}
 
 	ui.Profs = profs
@@ -198,7 +197,7 @@ func (ui *UI) ResetForm() {
 func (ui *UI) HandleNew() {
 	profs, err := LoadProfiles()
 	if err != nil {
-		ui.PromptDialog("新建失败", err.Error(), func(bool) {})
+		ui.PromptDialog("新建失败", loadErrorMessage(err), func(bool) {})
 		return
 	}
 	prof := NewDefaultProfile()
@@ -290,8 +289,9 @@ func (ui *UI) HandleSave() {
 	}
 
 	profs, err := LoadProfiles()
-	if err != nil || profs == nil {
-		profs = make(map[string]*Profile)
+	if err != nil {
+		ui.PromptDialog("保存失败", loadErrorMessage(err), func(bool) {})
+		return
 	}
 	if existing, ok := profs[prof.Name]; ok && (ui.OriginalName == "" || ui.OriginalName != prof.Name) && existing != nil {
 		ui.PromptDialog("保存失败", fmt.Sprintf("配置名已存在: %s", prof.Name), func(bool) {})
@@ -336,21 +336,39 @@ func (ui *UI) HandleDelete() {
 	}
 
 	ui.PromptDialog("确认", fmt.Sprintf("请确认是否删除 %s", prof.Name), func(b bool) {
-		if b {
-			delete(ui.Profs, name)
-			SaveProfiles(ui.Profs)
-			ui.ResetLeft()
-			ui.Left.Refresh()
-			names := GetProfileNames(ui.Profs)
-			if len(names) > 0 {
-				ui.selectProfile(names[ui.CurrentIdx])
-			} else {
-				ui.ResetForm()
-				ui.Left.UnselectAll()
-				_ = SetCurrentProfileName("")
+		if !b {
+			return
+		}
+		profs, err := LoadProfiles()
+		if err != nil {
+			ui.PromptDialog("删除失败", loadErrorMessage(err), func(bool) {})
+			return
+		}
+		delete(profs, name)
+		if err := SaveProfiles(profs); err != nil {
+			ui.PromptDialog("删除失败", err.Error(), func(bool) {})
+			return
+		}
+		ui.ResetLeft()
+		ui.Left.Refresh()
+		names := GetProfileNames(ui.Profs)
+		if len(names) > 0 {
+			ui.selectProfile(names[ui.CurrentIdx])
+		} else {
+			ui.ResetForm()
+			ui.Left.UnselectAll()
+			if err := SetCurrentProfileName(""); err != nil {
+				logger.Error.Println(err.Error())
 			}
 		}
 	})
+}
+
+// loadErrorMessage explains a broken profiles.json; we refuse to overwrite it
+// so hand-edited profiles are not lost.
+func loadErrorMessage(err error) string {
+	path, _ := GetProfilePath()
+	return fmt.Sprintf("读取配置文件失败, 为避免覆盖已有配置, 本次未写入。\n请修复或删除 %s 后重试。\n%v", path, err)
 }
 
 func (ui *UI) selectedProfileName() string {

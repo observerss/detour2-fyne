@@ -33,6 +33,8 @@ Environment:
   FYNE_CROSS_REGISTRY     Docker registry mirror. Default: docker.1ms.run
   FYNE_CROSS_GO_VERSION   Go directive used only in the temp workspace. Default: current repo go.mod version
   MACOSX_SDK_PATH         Required for darwin builds on Linux, for example /path/to/MacOSX.sdk
+  DETOUR2_DEFAULT_PROFILES / DETOUR2_DEFAULT_PROFILE / DETOUR2_DEFAULT_PASSWORD
+                          Built-in lines baked into the app; override build.env (see build.env.example)
 EOF
 }
 
@@ -53,6 +55,7 @@ copy_tree() {
             --exclude dist \
             --exclude fyne-cross \
             --exclude vendor \
+            --exclude build.env \
             "$src/" "$dst/"
     else
         (cd "$src" && tar \
@@ -60,11 +63,14 @@ copy_tree() {
             --exclude ./dist \
             --exclude ./fyne-cross \
             --exclude ./vendor \
+            --exclude ./build.env \
             -cf - .) | (cd "$dst" && tar -xf -)
     fi
 }
 
 prepare_workspace() {
+    # bake the built-in lines from build.env into profile/defaults_gen.go
+    (cd "$repo_root" && go generate ./profile/)
     mkdir -p "${tmp_root}/Personal"
     copy_tree "$repo_root" "$tmp_app"
 

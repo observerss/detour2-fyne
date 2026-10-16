@@ -7,49 +7,33 @@ import (
 	"github.com/observerss/detour2-fyne/utils"
 )
 
-var EmptyProfile = map[string]*Profile{}
-
-type runState struct {
-	ProfileName    string `json:"profileName,omitempty"`
-	Socks5Port     string `json:"socks5Port,omitempty"`
-	HTTPPort       string `json:"httpPort,omitempty"`
-	LocalPort      string `json:"localPort,omitempty"`
-	RunOnStartup   bool   `json:"runOnStartup,omitempty"`
-	UseGlobalProxy bool   `json:"useGlobalProxy,omitempty"`
-}
-
+// LoadProfiles reads profiles.json. On first launch (no file yet) it returns
+// the built-in lines. On error it returns an empty map and the error; callers
+// must not save on top of a file they could not read.
 func LoadProfiles() (map[string]*Profile, error) {
 	path, err := GetProfilePath()
 	if err != nil {
-		return EmptyProfile, err
+		return map[string]*Profile{}, err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultProfiles(), nil
+			return DefaultProfiles(), nil
 		}
-		return EmptyProfile, err
+		return map[string]*Profile{}, err
 	}
 	profs := make(map[string]*Profile, 0)
-	err = json.Unmarshal(content, &profs)
-	if err != nil {
-		return EmptyProfile, err
-	}
-	if len(profs) == 0 {
-		return defaultProfiles(), nil
+	if err := json.Unmarshal(content, &profs); err != nil {
+		return map[string]*Profile{}, err
 	}
 	return NormalizeProfiles(profs), nil
 }
 
 func SaveProfiles(profs map[string]*Profile) error {
-	profs = NormalizeProfiles(profs)
-	tosave := make(map[string]*Profile, 0)
-	for _, prof := range profs {
-		if prof == nil || prof.Name == "" {
-			continue
-		}
-		var newprof = *prof
-		tosave[newprof.Name] = &newprof
+	tosave := make(map[string]*Profile, len(profs))
+	for name, prof := range NormalizeProfiles(profs) {
+		newprof := *prof
+		tosave[name] = &newprof
 	}
 	data, err := json.MarshalIndent(tosave, "", "  ")
 	if err != nil {
@@ -59,38 +43,39 @@ func SaveProfiles(profs map[string]*Profile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return utils.WriteFileAtomic(path, data, 0o600)
 }
 
 func GetProfilePath() (string, error) {
 	return utils.AppConfigFile("profiles.json")
 }
 
-func defaultProfiles() map[string]*Profile {
-	return DefaultProfiles()
-}
-
+// SetCurrentProfileName updates profileName in run.json and keeps every other
+// field, including ones this package does not know about.
 func SetCurrentProfileName(name string) error {
-	name = NormalizeProfileName(name)
 	path, err := utils.AppConfigFile("run.json")
 	if err != nil {
 		return err
 	}
-	state := &runState{}
+	state := map[string]any{}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
 		}
 	} else if len(content) > 0 {
-		if err := json.Unmarshal(content, state); err != nil {
+		if err := json.Unmarshal(content, &state); err != nil {
 			return err
 		}
 	}
-	state.ProfileName = name
+	if name = NormalizeProfileName(name); name == "" {
+		delete(state, "profileName")
+	} else {
+		state["profileName"] = name
+	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return utils.WriteFileAtomic(path, data, 0o600)
 }

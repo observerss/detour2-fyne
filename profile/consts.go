@@ -6,72 +6,53 @@ import (
 	"strings"
 )
 
-const (
-	DefaultProfileName = ""
-	DefaultPassword    = ""
+//go:generate go run ../tools/gendefaults -config ../build.env -o defaults_gen.go
+
+// The built-in lines are injected at build time from build.env (see
+// build.env.example) through the generated defaults_gen.go. Neither file is
+// committed; without them the app ships with no built-in lines.
+var (
+	DefaultProfileName string    // selected on first launch
+	builtinProfiles    []Profile // seeded when profiles.json does not exist yet
 )
 
-var defaultProfileNames = []string{}
-
+// NewDefaultProfile is the blank template for "new" and "reset".
 func NewDefaultProfile() *Profile {
-	return NewDefaultProfileByName(DefaultProfileName)
+	return &Profile{}
 }
 
-func NewDefaultProfileByName(name string) *Profile {
-	return &Profile{
-		Name:          NormalizeProfileName(name),
-		RemoteAddress: "",
-		Password:      DefaultPassword,
-	}
-}
-
-func defaultRemoteAddressForName(name string) string {
-	return ""
-}
-
-func DefaultProfileNames() []string {
-	names := make([]string, len(defaultProfileNames))
-	copy(names, defaultProfileNames)
-	return names
-}
-
+// DefaultProfiles returns fresh copies of the built-in lines.
 func DefaultProfiles() map[string]*Profile {
-	profs := make(map[string]*Profile, len(defaultProfileNames))
-	for _, name := range DefaultProfileNames() {
-		profs[name] = NewDefaultProfileByName(name)
+	profs := make(map[string]*Profile, len(builtinProfiles))
+	for _, builtin := range builtinProfiles {
+		prof := builtin
+		profs[prof.Name] = &prof
 	}
 	return profs
 }
 
+// NormalizeProfiles keeps map keys and names in sync and drops unusable
+// entries. It never adds profiles: a profile the user deleted stays deleted.
 func NormalizeProfiles(profs map[string]*Profile) map[string]*Profile {
-	if len(profs) == 0 {
-		return DefaultProfiles()
-	}
+	out := make(map[string]*Profile, len(profs))
 	for name, prof := range profs {
 		if prof == nil {
-			delete(profs, name)
 			continue
 		}
 		normalizedName := NormalizeProfileName(firstNonEmpty(prof.Name, name))
 		if normalizedName == "" {
-			delete(profs, name)
 			continue
 		}
 		prof.Name = normalizedName
-		if name != normalizedName {
-			delete(profs, name)
-			profs[normalizedName] = prof
-		}
+		out[normalizedName] = prof
 	}
-	return profs
+	return out
 }
 
+// NormalizeProfileName trims a profile name. "default" is an ordinary name:
+// older versions used it, and mapping it elsewhere dropped those profiles.
 func NormalizeProfileName(name string) string {
-	name = strings.TrimSpace(name)
-	if strings.EqualFold(name, "default") {
-		return DefaultProfileName
-	}
-	return name
+	return strings.TrimSpace(name)
 }
 
 func firstNonEmpty(values ...string) string {

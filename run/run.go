@@ -38,7 +38,7 @@ func SaveRun(run *Run) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return utils.WriteFileAtomic(path, data, 0o600)
 }
 
 func GetRunPath() (string, error) {
@@ -58,7 +58,7 @@ func normalizeRun(run *Run) {
 	if run.HTTPPort == "33331" {
 		run.HTTPPort = DefaultHTTPPort
 	}
-	if run.ProfileName == "default" || run.ProfileName == "" {
+	if run.ProfileName == "" {
 		run.ProfileName = profile.DefaultProfileName
 	}
 }
