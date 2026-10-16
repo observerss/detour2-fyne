@@ -2,7 +2,6 @@
 package main
 
 import (
-	"io"
 	"os"
 	"runtime"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/observerss/detour2-fyne/profile"
 	"github.com/observerss/detour2-fyne/run"
+	"github.com/observerss/detour2-fyne/run/proxy"
 	th "github.com/observerss/detour2-fyne/theme"
 	"github.com/observerss/detour2/logger"
 )
@@ -30,6 +30,11 @@ var (
 )
 
 func main() {
+	// recovery modes (proxy watchdog, RunOnce restore) of this same binary
+	if proxy.HandleArgs(os.Args) {
+		return
+	}
+
 	a := app.NewWithID(AppID)
 	a.Settings().SetTheme(th.RunTheme())
 	w := a.NewWindow(Title)
@@ -39,8 +44,8 @@ func main() {
 
 	runUI := run.NewUI(w)
 	profileUI := profile.NewUI(w)
-	logger.Info.SetOutput(io.MultiWriter(os.Stdout, runUI.Logs))
-	logger.Error.SetOutput(io.MultiWriter(os.Stderr, runUI.Logs))
+	runUI.AttachLogger()
+	recoverSystemProxy()
 
 	var tabs *container.AppTabs
 	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
@@ -62,7 +67,10 @@ func main() {
 	tabs.OnSelected = func(t *container.TabItem) {
 		if t.Text == TextRun {
 			a.Settings().SetTheme(th.RunTheme())
-			runUI.ResetUI()
+			runUI.RefreshProfiles()
+			if runtime.GOOS == "android" {
+				runUI.CanvasObject.Refresh()
+			}
 		} else if t.Text == TextProfile {
 			// android needs manually refresh
 			if runtime.GOOS == "android" {
@@ -78,4 +86,20 @@ func main() {
 
 	w.SetContent(tabs)
 	w.ShowAndRun()
+
+	// ShowAndRun returns for every way of quitting (exit button, tray "Quit",
+	// closing the last window); the UI loop is gone, so log to stdio again.
+	runUI.DetachLogger()
+	runUI.Shutdown()
+}
+
+// recoverSystemProxy undoes a system proxy left pointing at us by a previous
+// run that was killed before it could restore it.
+func recoverSystemProxy() {
+	restored, err := proxy.Recover()
+	if err != nil {
+		logger.Error.Println(err)
+	} else if restored {
+		logger.Info.Println("已恢复上次异常退出时遗留的系统代理设置")
+	}
 }

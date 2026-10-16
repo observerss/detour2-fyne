@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/url"
@@ -64,6 +65,8 @@ type UI struct {
 	LogEntry       *widget.Entry
 	Parent         fyne.Window
 	Started        bool
+	ProxyApplied   bool // desktop: we currently own the system proxy setting
+	Loading        bool // suppress OnChanged side effects while restoring saved state
 	Logs           *clog
 	Socks5Server   *local.Local
 	HTTPServer     *local.Local
@@ -84,10 +87,13 @@ func NewUI(parent fyne.Window) *UI {
 		ProxyStatus:    widget.NewLabel(""),
 		ToggleRun:      widget.NewButton(TextStartFC, func() {}),
 		EnableSwitch:   NewMobileSwitch(func(b bool) {}),
-		Exit:           widget.NewButton(TextExit, func() { os.Exit(0) }),
 		LogEntry:       widget.NewMultiLineEntry(),
 		Parent:         parent,
 	}
+	ui.Exit = widget.NewButton(TextExit, func() {
+		ui.Shutdown()
+		fyne.CurrentApp().Quit()
+	})
 	ui.Logs = &clog{Entry: ui.LogEntry, Lines: make([]string, 0)}
 	return ui
 }
@@ -174,21 +180,7 @@ func mobileField(label string, object fyne.CanvasObject) fyne.CanvasObject {
 
 func (ui *UI) ResetUI() {
 	ui.ProfileSelect.PlaceHolder = TextFCPlaceholder
-	profs, err := profile.LoadProfiles()
-	if err != nil {
-		profs = profile.EmptyProfile
-	}
-	names := profile.GetProfileNames(profs)
-	ui.ProfileSelect.Options = names
-	if len(names) > 0 {
-		selected := profile.NormalizeProfileName(ui.ProfileSelect.Selected)
-		if _, ok := profs[selected]; !ok {
-			selected = names[0]
-		}
-		ui.ProfileSelect.SetSelected(selected)
-	} else {
-		ui.ProfileSelect.ClearSelected()
-	}
+	ui.RefreshProfiles()
 	ui.Socks5Port.SetPlaceHolder(DefaultSocks5Port)
 	ui.Socks5Port.SetText(DefaultSocks5Port)
 	ui.HTTPPort.SetPlaceHolder(DefaultHTTPPort)
@@ -198,24 +190,75 @@ func (ui *UI) ResetUI() {
 	ui.LoadRun()
 }
 
+// RefreshProfiles reloads the profile names (they may have been edited on the
+// other tab) while keeping the current selection and the rest of the form.
+func (ui *UI) RefreshProfiles() {
+	profs, err := profile.LoadProfiles()
+	if err != nil {
+		logger.Error.Println(err.Error())
+	}
+	names := profile.GetProfileNames(profs)
+	ui.ProfileSelect.SetOptions(names)
+	if len(names) == 0 {
+		ui.ProfileSelect.ClearSelected()
+		return
+	}
+	selected := profile.NormalizeProfileName(ui.ProfileSelect.Selected)
+	if _, ok := profs[selected]; !ok {
+		selected = profile.DefaultProfileName
+		if _, ok := profs[selected]; !ok {
+			selected = names[0]
+		}
+	}
+	ui.ProfileSelect.SetSelected(selected)
+}
+
 func (ui *UI) SetupBindings() {
 	ui.ToggleRun.OnTapped = ui.HandleToggleRun
 	ui.EnableSwitch.OnChanged = ui.HandleMobileEnableChanged
 	ui.RunOnStartup.OnChanged = func(b bool) {
+		if ui.Loading {
+			return
+		}
 		if !supportsStartup() {
 			ui.RunOnStartup.SetChecked(false)
 			return
 		}
-		if b {
-			startup.Enable()
-		} else {
-			startup.Disable()
-		}
 		ui.SaveRun()
+		ui.RunOnStartup.Disable()
+		go func() {
+			var err error
+			if b {
+				err = startup.Enable()
+			} else {
+				err = startup.Disable()
+			}
+			fyne.Do(func() {
+				ui.RunOnStartup.Enable()
+				if err == nil {
+					return
+				}
+				logger.Error.Println("设置开机自动运行失败:", err)
+				ui.Loading = true
+				ui.RunOnStartup.SetChecked(!b)
+				ui.Loading = false
+				ui.SaveRun()
+			})
+		}()
 	}
 	ui.UseGlobalProxy.OnChanged = func(b bool) {
+		if ui.Loading {
+			return
+		}
 		if !supportsGlobalProxy() {
 			ui.UseGlobalProxy.SetChecked(false)
+			return
+		}
+		if !mobileLayout() {
+			// desktop: the system proxy only points at us while we run
+			ui.SyncGlobalProxy()
+			ui.UpdateProxyStatus()
+			ui.SaveRun()
 			return
 		}
 		if runtime.GOOS == "android" && b && !ui.Started {
@@ -261,9 +304,23 @@ func (ui *UI) SetupBindings() {
 	ui.UpdateProxyStatus()
 }
 
-func (ui *UI) HandleToggleRun() {
-	logger.Error.SetOutput(ui.Logs)
+// AttachLogger mirrors detour2 logs into the log panel for the app's lifetime.
+// The panel goes first: on Windows GUI builds stdout is invalid and
+// io.MultiWriter stops at the first failing writer.
+func (ui *UI) AttachLogger() {
+	logger.Info.SetOutput(io.MultiWriter(ui.Logs, os.Stdout))
+	logger.Warn.SetOutput(io.MultiWriter(ui.Logs, os.Stdout))
+	logger.Error.SetOutput(io.MultiWriter(ui.Logs, os.Stderr))
+}
 
+// DetachLogger sends logs back to stdio once the UI loop has ended.
+func (ui *UI) DetachLogger() {
+	logger.Info.SetOutput(os.Stdout)
+	logger.Warn.SetOutput(os.Stdout)
+	logger.Error.SetOutput(os.Stderr)
+}
+
+func (ui *UI) HandleToggleRun() {
 	if !ui.Started {
 		ui.StartRunning()
 	} else {
@@ -326,6 +383,12 @@ func (ui *UI) StartRunning() {
 		ui.setEnableSwitchChecked(false)
 		return
 	}
+	if prof.Password == "" {
+		logger.Error.Println("上游配置缺少密码:", prof.Name)
+		ui.ToggleRun.Enable()
+		ui.setEnableSwitchChecked(false)
+		return
+	}
 	if runtime.GOOS == "ios" && ui.UseGlobalProxy.Checked {
 		if err := ui.startGlobalProxy(socks5Port, httpPort); err != nil {
 			logger.Error.Println(err.Error())
@@ -358,38 +421,21 @@ func (ui *UI) StartRunning() {
 	}
 	ui.Socks5Server = local.NewLocal(lconf)
 	ui.HTTPServer = local.NewLocal(lconf2)
-	go func() {
-		err := ui.Socks5Server.RunLocal()
-		if err != nil {
-			logger.Error.Println(err)
-			ui.Started = false
-			fyne.Do(func() {
-				ui.ToggleRun.SetText(TextStartFC)
-				ui.ToggleRun.Enable()
-				if ui.EnableSwitch != nil {
-					ui.EnableSwitch.Enable()
-					ui.setEnableSwitchChecked(false)
-				}
-			})
-		}
-	}()
-
-	go func() {
-		err := ui.HTTPServer.RunLocal()
-		if err != nil {
-			logger.Error.Println(err)
-		}
-	}()
-	if ui.UseGlobalProxy.Checked && supportsGlobalProxy() {
+	ui.Started = true
+	go ui.serve(ui.Socks5Server)
+	go ui.serve(ui.HTTPServer)
+	if !mobileLayout() {
+		ui.SyncGlobalProxy()
+		ui.UpdateProxyStatus()
+	} else if ui.UseGlobalProxy.Checked && supportsGlobalProxy() {
 		if runtime.GOOS == "android" {
 			if err := waitForTCPListener(net.JoinHostPort("127.0.0.1", socks5Port), 3*time.Second); err != nil {
+				// stop everything, so Started matches the switch and a
+				// later tap can start again
 				logger.Error.Println(err.Error())
-				ui.ProxyStatus.SetText(err.Error())
-				ui.ToggleRun.Enable()
-				ui.setEnableSwitchChecked(false)
 				ui.SaveRun()
-				ui.Started = true
-				ui.ToggleRun.SetText(TextStopFC)
+				ui.StopRunning()
+				ui.ProxyStatus.SetText(err.Error())
 				return
 			}
 		}
@@ -422,7 +468,10 @@ func (ui *UI) StopRunning() {
 	ui.Started = false
 	ui.recoveringVPN = false
 	ui.stopLocalServers()
-	if ui.UseGlobalProxy.Checked && supportsGlobalProxy() {
+	if !mobileLayout() {
+		ui.SyncGlobalProxy()
+		ui.UpdateProxyStatus()
+	} else if ui.UseGlobalProxy.Checked && supportsGlobalProxy() {
 		if err := proxy.Off(); err != nil {
 			logger.Error.Println(err.Error())
 		}
@@ -432,6 +481,69 @@ func (ui *UI) StopRunning() {
 	ui.ToggleRun.Enable()
 	ui.setEnableSwitchChecked(false)
 	ui.ToggleRun.SetText(TextStartFC)
+}
+
+// serve runs srv until it exits. If it dies on its own (e.g. the port is in
+// use) the whole pair is stopped, so we never keep a half-working proxy or a
+// system proxy pointing at a dead port.
+func (ui *UI) serve(srv *local.Local) {
+	err := srv.RunLocal()
+	if srv.IsStopped() {
+		return
+	}
+	if err == nil {
+		err = fmt.Errorf("本地代理意外退出: %s://%s", srv.Network, srv.Address)
+	}
+	logger.Error.Println(err)
+	fyne.Do(func() {
+		if ui.Socks5Server == srv || ui.HTTPServer == srv {
+			ui.StopRunning()
+		}
+	})
+}
+
+// Shutdown stops the local proxies and restores the system proxy. It does not
+// touch widgets, so it is safe after the UI loop has ended, and safe to call
+// more than once. The iOS tunnel lives in its own extension and is left alone.
+func (ui *UI) Shutdown() {
+	wasRunning := ui.Started
+	ui.Started = false
+	ui.stopLocalServers()
+	switch {
+	case !mobileLayout():
+		ui.SyncGlobalProxy()
+	case runtime.GOOS == "android" && wasRunning && ui.UseGlobalProxy.Checked:
+		// the VPN forwards into the local servers we just stopped
+		if err := proxy.Off(); err != nil {
+			logger.Error.Println(err.Error())
+		}
+	}
+}
+
+// SyncGlobalProxy (desktop) makes the system proxy point at us only while the
+// local proxies run and the user asked for it, and restores it otherwise.
+func (ui *UI) SyncGlobalProxy() {
+	want := ui.Started && ui.UseGlobalProxy.Checked && supportsGlobalProxy()
+	if want == ui.ProxyApplied {
+		return
+	}
+	if want {
+		socks5Port, httpPort, err := ui.proxyPorts()
+		if err == nil {
+			err = ui.startGlobalProxy(socks5Port, httpPort)
+		}
+		if err != nil {
+			logger.Error.Println(err.Error())
+			return
+		}
+		ui.ProxyApplied = true
+		return
+	}
+	if err := proxy.Off(); err != nil {
+		logger.Error.Println(err.Error())
+		return
+	}
+	ui.ProxyApplied = false
 }
 
 func (ui *UI) SaveRun() {
@@ -455,6 +567,8 @@ func (ui *UI) LoadRun() {
 		log.Println(err)
 		return
 	}
+	ui.Loading = true
+	defer func() { ui.Loading = false }()
 	if run.ProfileName != "" {
 		ui.ProfileSelect.SetSelected(profile.NormalizeProfileName(run.ProfileName))
 	}
@@ -727,7 +841,7 @@ func (ui *UI) syncAndroidVPNStopped(reason string) {
 
 func supportsGlobalProxy() bool {
 	switch runtime.GOOS {
-	case "android", "darwin", "ios", "linux", "windows":
+	case "android", "darwin", "ios", "windows":
 		return true
 	default:
 		return false
@@ -765,9 +879,9 @@ func globalProxyEndpoint(socks5Port string, httpPort string) string {
 	case "android":
 		return fmt.Sprintf("127.0.0.1:%s", socks5Port)
 	case "darwin":
-		return fmt.Sprintf("http=localhost:%s;socks5=localhost:%s", httpPort, socks5Port)
+		return fmt.Sprintf("http=127.0.0.1:%s;socks5=127.0.0.1:%s", httpPort, socks5Port)
 	default:
-		return fmt.Sprintf("localhost:%s", httpPort)
+		return fmt.Sprintf("127.0.0.1:%s", httpPort)
 	}
 }
 

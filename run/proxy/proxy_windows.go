@@ -1,22 +1,24 @@
 //go:build windows
 // +build windows
 
-// windows系统代理配置
+// windows系统代理配置 (WinINet, 即 "Internet 选项" 里的局域网设置)
 // thanks to https://github.com/Trisia/gosysproxy
 package proxy
 
 import (
 	"errors"
-	"fmt"
-	"math/big"
+	"runtime"
 	"strings"
-	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
-	wininet, _           = syscall.LoadLibrary("Wininet.dll")
-	internetSetOption, _ = syscall.GetProcAddress(wininet, "InternetSetOptionW")
+	wininet             = windows.NewLazySystemDLL("wininet.dll")
+	internetSetOption   = wininet.NewProc("InternetSetOptionW")
+	internetQueryOption = wininet.NewProc("InternetQueryOptionW")
+	globalFree          = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalFree")
 )
 
 const (
@@ -33,16 +35,11 @@ const (
 )
 
 const (
-	_INTERNET_PER_CONN_FLAGS                        = 1
-	_INTERNET_PER_CONN_PROXY_SERVER                 = 2
-	_INTERNET_PER_CONN_PROXY_BYPASS                 = 3
-	_INTERNET_PER_CONN_AUTOCONFIG_URL               = 4
-	_INTERNET_PER_CONN_AUTODISCOVERY_FLAGS          = 5
-	_INTERNET_PER_CONN_AUTOCONFIG_SECONDARY_URL     = 6
-	_INTERNET_PER_CONN_AUTOCONFIG_RELOAD_DELAY_MINS = 7
-	_INTERNET_PER_CONN_AUTOCONFIG_LAST_DETECT_TIME  = 8
-	_INTERNET_PER_CONN_AUTOCONFIG_LAST_DETECT_URL   = 9
-	_INTERNET_PER_CONN_FLAGS_UI                     = 10
+	_INTERNET_PER_CONN_FLAGS          = 1
+	_INTERNET_PER_CONN_PROXY_SERVER   = 2
+	_INTERNET_PER_CONN_PROXY_BYPASS   = 3
+	_INTERNET_PER_CONN_AUTOCONFIG_URL = 4
+	_INTERNET_PER_CONN_FLAGS_UI       = 10 // Windows 7+: flags as shown in the UI, incl. auto-detect
 )
 
 type internetPerConnOptionList struct {
@@ -50,168 +47,188 @@ type internetPerConnOptionList struct {
 	pszConnection *uint16
 	dwOptionCount uint32
 	dwOptionError uint32
-	pOptions      uintptr
+	pOptions      unsafe.Pointer
 }
 
-type internetPreConnOption struct {
+// internetPerConnOption mirrors INTERNET_PER_CONN_OPTIONW; value is the
+// DWORD / LPWSTR / FILETIME union (8 bytes, little endian).
+type internetPerConnOption struct {
 	dwOption uint32
 	value    uint64
 }
 
-// stringPtrAddr 获取C字符串(UTF16)的数组第一个位置的地址
-func stringPtrAddr(str string) (uint64, error) {
-	scriptLocPtr, err := syscall.UTF16PtrFromString(str)
+func dwordOption(option, value uint32) internetPerConnOption {
+	return internetPerConnOption{dwOption: option, value: uint64(value)}
+}
+
+// stringOption stores str's address in the union. The address is invisible
+// to the GC, so the returned pointer must be kept alive until the call is done.
+func stringOption(option uint32, str string) (internetPerConnOption, *uint16, error) {
+	ptr, err := windows.UTF16PtrFromString(str)
 	if err != nil {
-		return 0, err
+		return internetPerConnOption{}, nil, err
 	}
-	n := new(big.Int)
-	n.SetString(fmt.Sprintf("%x\n", scriptLocPtr), 16)
-	return n.Uint64(), nil
+	// store the address as an integer: writing it through a **uint16 view of
+	// the uint64 field gets dropped by the compiler (observed with Go 1.26)
+	o := internetPerConnOption{dwOption: option, value: uint64(uintptr(unsafe.Pointer(ptr)))}
+	return o, ptr, nil
 }
 
-// newParam 创建参数序列容器
-// n: 参数数量
-func newParam(n int) internetPerConnOptionList {
-	return internetPerConnOptionList{
-		dwSize:        4,
-		pszConnection: nil,
-		dwOptionCount: uint32(n),
-		dwOptionError: 0,
-		pOptions:      0,
+// takeString reads a WinINet-allocated string out of the union and frees it.
+func takeString(o *internetPerConnOption) string {
+	ptr := *(**uint16)(unsafe.Pointer(&o.value))
+	if ptr == nil {
+		return ""
 	}
+	s := windows.UTF16PtrToString(ptr)
+	globalFree.Call(uintptr(unsafe.Pointer(ptr)))
+	return s
 }
 
-// SetPAC 设置PAC代理模式
-// scriptLoc: 脚本地址，如: "http://127.0.0.1:7777/pac"
-func SetPAC(scriptLoc string) error {
-	if scriptLoc == "" {
-		return errors.New("PAC脚本地址(scriptLoc)配置为空")
+// newList builds the option list for connection conn ("" = LAN settings).
+func newList(conn string, options []internetPerConnOption) (internetPerConnOptionList, error) {
+	list := internetPerConnOptionList{
+		dwOptionCount: uint32(len(options)),
+		pOptions:      unsafe.Pointer(&options[0]),
 	}
+	list.dwSize = uint32(unsafe.Sizeof(list))
+	if conn != "" {
+		ptr, err := windows.UTF16PtrFromString(conn)
+		if err != nil {
+			return list, err
+		}
+		list.pszConnection = ptr
+	}
+	return list, nil
+}
 
-	scriptLocAddr, err := stringPtrAddr(scriptLoc)
+func setOptions(conn string, options []internetPerConnOption, keep ...*uint16) error {
+	list, err := newList(conn, options)
 	if err != nil {
 		return err
 	}
-
-	param := newParam(2)
-	// 利用Golang数组地址空间连续模拟 malloc
-	options := []internetPreConnOption{
-		{dwOption: _INTERNET_PER_CONN_FLAGS, value: _PROXY_TYPE_AUTO_PROXY_URL | _PROXY_TYPE_DIRECT},
-		{dwOption: _INTERNET_PER_CONN_AUTOCONFIG_URL, value: scriptLocAddr},
-	}
-	param.pOptions = uintptr(unsafe.Pointer(&options[0]))
-	ret, _, infoPtr := syscall.SyscallN(internetSetOption,
-		4,
+	ret, _, callErr := internetSetOption.Call(
 		0,
 		_INTERNET_OPTION_PER_CONNECTION_OPTION,
-		uintptr(unsafe.Pointer(&param)),
-		unsafe.Sizeof(param),
-		0, 0)
-	// fmt.Printf(">> Ret [%d] Setting options: %s\n", ret, info)
-	if ret != 1 {
-		return fmt.Errorf("%s", infoPtr)
+		uintptr(unsafe.Pointer(&list)),
+		unsafe.Sizeof(list))
+	runtime.KeepAlive(keep)
+	runtime.KeepAlive(options)
+	if ret == 0 {
+		return callErr
 	}
-
 	return Flush()
 }
 
-// SetGlobalProxy 设置全局代理
-// proxyServer: 代理服务器host:port，例如: "127.0.0.1:7890"
-// bypass: 忽略代理列表,这些配置项开头的地址不进行代理
-func SetGlobalProxy(proxyServer string, bypasses ...string) error {
+// snapshot reads the current proxy settings of connection conn.
+func snapshot(conn string) (*Settings, error) {
+	s, err := queryOptions(conn, _INTERNET_PER_CONN_FLAGS_UI)
+	if err != nil {
+		// FLAGS_UI is not supported before Windows 7
+		s, err = queryOptions(conn, _INTERNET_PER_CONN_FLAGS)
+	}
+	return s, err
+}
+
+func queryOptions(conn string, flagsOption uint32) (*Settings, error) {
+	options := []internetPerConnOption{
+		{dwOption: flagsOption},
+		{dwOption: _INTERNET_PER_CONN_PROXY_SERVER},
+		{dwOption: _INTERNET_PER_CONN_PROXY_BYPASS},
+		{dwOption: _INTERNET_PER_CONN_AUTOCONFIG_URL},
+	}
+	list, err := newList(conn, options)
+	if err != nil {
+		return nil, err
+	}
+	size := list.dwSize
+	ret, _, callErr := internetQueryOption.Call(
+		0,
+		_INTERNET_OPTION_PER_CONNECTION_OPTION,
+		uintptr(unsafe.Pointer(&list)),
+		uintptr(unsafe.Pointer(&size)))
+	runtime.KeepAlive(options)
+	if ret == 0 {
+		return nil, callErr
+	}
+	return &Settings{
+		Flags:         uint32(options[0].value),
+		ProxyServer:   takeString(&options[1]),
+		ProxyBypass:   takeString(&options[2]),
+		AutoConfigURL: takeString(&options[3]),
+	}, nil
+}
+
+// apply writes back settings previously returned by snapshot.
+func apply(conn string, s *Settings) error {
+	server, serverPtr, err := stringOption(_INTERNET_PER_CONN_PROXY_SERVER, s.ProxyServer)
+	if err != nil {
+		return err
+	}
+	bypass, bypassPtr, err := stringOption(_INTERNET_PER_CONN_PROXY_BYPASS, s.ProxyBypass)
+	if err != nil {
+		return err
+	}
+	pac, pacPtr, err := stringOption(_INTERNET_PER_CONN_AUTOCONFIG_URL, s.AutoConfigURL)
+	if err != nil {
+		return err
+	}
+	options := []internetPerConnOption{
+		dwordOption(_INTERNET_PER_CONN_FLAGS, s.Flags),
+		server,
+		bypass,
+		pac,
+	}
+	return setOptions(conn, options, serverPtr, bypassPtr, pacPtr)
+}
+
+// setProxy points connection conn at proxyServer ("host:port").
+func setProxy(conn, proxyServer string, bypass string) error {
 	if proxyServer == "" {
 		return errors.New("代理服务器(proxyServer)配置为空")
 	}
-
-	proxyServerPtrAddr, err := stringPtrAddr(proxyServer)
+	server, serverPtr, err := stringOption(_INTERNET_PER_CONN_PROXY_SERVER, proxyServer)
 	if err != nil {
 		return err
 	}
-	var bypassBuilder strings.Builder
-	// 地址过滤配置
-	if bypasses != nil {
-		for _, item := range bypasses {
-			bypassBuilder.WriteString(item)
-			bypassBuilder.WriteByte(';')
-		}
-	} else {
-		bypassBuilder.WriteString("<local>")
-	}
-	bypassAddr, err := stringPtrAddr(bypassBuilder.String())
+	bypassOpt, bypassPtr, err := stringOption(_INTERNET_PER_CONN_PROXY_BYPASS, bypass)
 	if err != nil {
 		return err
 	}
-
-	param := newParam(3)
-	options := []internetPreConnOption{
-		{dwOption: _INTERNET_PER_CONN_FLAGS, value: _PROXY_TYPE_PROXY | _PROXY_TYPE_DIRECT},
-		{dwOption: _INTERNET_PER_CONN_PROXY_SERVER, value: proxyServerPtrAddr},
-		{dwOption: _INTERNET_PER_CONN_PROXY_BYPASS, value: bypassAddr},
+	options := []internetPerConnOption{
+		dwordOption(_INTERNET_PER_CONN_FLAGS, _PROXY_TYPE_PROXY|_PROXY_TYPE_DIRECT),
+		server,
+		bypassOpt,
 	}
-	param.pOptions = uintptr(unsafe.Pointer(&options[0]))
-	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
-		4,
-		0,
-		_INTERNET_OPTION_PER_CONNECTION_OPTION,
-		uintptr(unsafe.Pointer(&param)),
-		unsafe.Sizeof(param),
-		0, 0)
-	// fmt.Printf(">> Ret [%d] Setting options: %s\n", ret, infoPtr)
-	if ret != 1 {
-		return fmt.Errorf("%s", infoPtr)
-	}
-
-	return Flush()
+	return setOptions(conn, options, serverPtr, bypassPtr)
 }
 
-// Off 关闭代理
-func Off() error {
-	param := newParam(1)
-	option := internetPreConnOption{
-		dwOption: _INTERNET_PER_CONN_FLAGS,
-		//value:    _PROXY_TYPE_AUTO_DETECT | _PROXY_TYPE_DIRECT}
-		value: _PROXY_TYPE_DIRECT}
-	param.pOptions = uintptr(unsafe.Pointer(&option))
-	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
-		4,
-		0,
-		_INTERNET_OPTION_PER_CONNECTION_OPTION,
-		uintptr(unsafe.Pointer(&param)),
-		unsafe.Sizeof(param),
-		0, 0)
-	// fmt.Printf(">> Ret [%d] Setting options: %s\n", ret, info)
-	if ret != 1 {
-		return fmt.Errorf("%s", infoPtr)
+func pointsAt(s *Settings, proxyServer string) bool {
+	return s != nil && s.Flags&_PROXY_TYPE_PROXY != 0 && sameEndpoint(s.ProxyServer, proxyServer)
+}
+
+// sameEndpoint treats localhost and 127.0.0.1 alike: older builds set
+// "localhost:port", and their leftovers must still be recognised as ours.
+func sameEndpoint(a, b string) bool {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		return strings.Replace(s, "localhost:", "127.0.0.1:", 1)
 	}
-	return Flush()
+	return norm(a) == norm(b)
+}
+
+// defaultSettings is what Windows ships with: direct + "automatically detect".
+func defaultSettings() *Settings {
+	return &Settings{Flags: _PROXY_TYPE_DIRECT | _PROXY_TYPE_AUTO_DETECT}
 }
 
 // Flush 更新系统配置使生效
 func Flush() error {
-	ret, _, infoPtr := syscall.Syscall6(internetSetOption,
-		4,
-		0,
-		_INTERNET_OPTION_PROXY_SETTINGS_CHANGED,
-		0, 0,
-		0, 0)
-	// fmt.Println(">> Propagating changes:", fmt.Sprintf("%s", errno))
-	if ret != 1 {
-		return fmt.Errorf("%s", infoPtr)
+	if ret, _, err := internetSetOption.Call(0, _INTERNET_OPTION_PROXY_SETTINGS_CHANGED, 0, 0); ret == 0 {
+		return err
 	}
-
-	ret, _, infoPtr = syscall.Syscall6(internetSetOption,
-		4,
-		0,
-		_INTERNET_OPTION_REFRESH,
-		0, 0,
-		0, 0)
-	// fmt.Println(">> Refreshing:", errno)
-	if ret != 1 {
-		return fmt.Errorf("%s", infoPtr)
+	if ret, _, err := internetSetOption.Call(0, _INTERNET_OPTION_REFRESH, 0, 0); ret == 0 {
+		return err
 	}
 	return nil
-}
-
-func Status() string {
-	return "Windows 系统代理由 WinINet 管理"
 }
