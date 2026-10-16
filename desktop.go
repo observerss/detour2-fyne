@@ -17,9 +17,13 @@ func setupDesktop(a fyne.App, w fyne.Window) {
 
 		desk.SetSystemTrayMenu(menu)
 		desk.SetSystemTrayIcon(resourceIconPng)
-		w.SetCloseIntercept(func() {
-			w.Hide()
-			a.SendNotification(fyne.NewNotification(TextTrayMinimizedTitle, TextTrayMinimizedBody))
-		})
+		// without a tray icon a hidden window could never be shown again,
+		// so only hide-on-close when the tray is really there
+		if trayAvailable() {
+			w.SetCloseIntercept(func() {
+				w.Hide()
+				a.SendNotification(fyne.NewNotification(TextTrayMinimizedTitle, TextTrayMinimizedBody))
+			})
+		}
 	}
 }
