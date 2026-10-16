@@ -6,7 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.7.3
 	github.com/flopp/go-findfont v0.1.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/observerss/detour2 v0.4.1
+	github.com/observerss/detour2 v0.4.4
 	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 	golang.org/x/sys v0.33.0
 	gvisor.dev/gvisor v0.0.0-20250523182742-eede7a881b20
@@ -47,7 +47,6 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/image v0.24.0 // indirect
-	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a // indirect
 	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
